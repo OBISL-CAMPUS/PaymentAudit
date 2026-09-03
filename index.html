@@ -30,7 +30,6 @@
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b0f19; color: #f8fafc; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
 
-        /* Custom Animations & Styles */
         @keyframes pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
         .animate-pulse-subtle { animation: pulse-subtle 2s infinite ease-in-out; }
 
@@ -54,7 +53,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-        // --- STANDARD AUDIT COMMENTS ---
         const STANDARD_COMMENTS = [
             'Late Fees Not Paid',
             'Not Available in Bank Statement',
@@ -64,8 +62,6 @@
             'REJECTED: Invalid Receipt',
             'DUPLICATE: Double Submission'
         ];
-
-        // --- FUZZY MATCHING & STRING UTILITIES ---
 
         const normalize = (str) => (str || "").toString().toUpperCase().trim().replace(/[^A-Z0-9\s]/g, ' ');
 
@@ -99,52 +95,47 @@
             return '';
         };
 
-        const levenshteinDistance = (a, b) => {
-            if (a.length === 0) return b.length;
-            if (b.length === 0) return a.length;
-            const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
-            for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-            for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+        const normalizeMonthString = (raw) => {
+            if (!raw) return '';
+            let str = raw.toString().trim();
+            if (!str) return '';
 
-            for (let i = 1; i <= a.length; i++) {
-                for (let j = 1; j <= b.length; j++) {
-                    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j] + 1,
-                        matrix[i][j - 1] + 1,
-                        matrix[i - 1][j - 1] + cost
-                    );
-                }
-            }
-            return matrix[a.length][b.length];
-        };
+            const excelAugPattern = /^(\d{2})[-/\s]?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i;
+            const excelAugPattern2 = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-/\s]?(\d{2})$/i;
 
-        const fuzzyNameSimilarity = (name, text) => {
-            if (!name || !text || name.length < 3) return 0;
-            const cleanName = normalize(name);
-            const cleanText = normalize(text);
+            const monthMap = {
+                jan: 'January', feb: 'February', mar: 'March', apr: 'April',
+                may: 'May', jun: 'June', jul: 'July', aug: 'August',
+                sep: 'September', oct: 'October', nov: 'November', dec: 'December'
+            };
 
-            if (cleanText.includes(cleanName)) return 100;
-
-            const nameTokens = cleanName.split(/\s+/).filter(t => t.length > 2);
-            if (nameTokens.length === 0) return 0;
-
-            let matchedTokens = 0;
-            const textTokens = cleanText.split(/\s+/);
-
-            for (const nToken of nameTokens) {
-                let bestMatch = false;
-                for (const tToken of textTokens) {
-                    if (tToken === nToken) { bestMatch = true; break; }
-                    if (nToken.length > 3 && tToken.length > 3) {
-                        const dist = levenshteinDistance(nToken, tToken);
-                        if (dist <= 1) { bestMatch = true; break; }
-                    }
-                }
-                if (bestMatch) matchedTokens++;
+            let match1 = str.match(excelAugPattern);
+            if (match1) {
+                let yy = match1[1];
+                let mShort = match1[2].toLowerCase();
+                let fullYear = yy.length === 2 ? `20${yy}` : yy;
+                let fullMonth = monthMap[mShort] || mShort;
+                return `${fullMonth} ${fullYear}`;
             }
 
-            return Math.round((matchedTokens / nameTokens.length) * 100);
+            let match2 = str.match(excelAugPattern2);
+            if (match2) {
+                let mShort = match2[1].toLowerCase();
+                let yy = match2[2];
+                let fullYear = yy.length === 2 ? `20${yy}` : yy;
+                let fullMonth = monthMap[mShort] || mShort;
+                return `${fullMonth} ${fullYear}`;
+            }
+
+            for (const [short, full] of Object.entries(monthMap)) {
+                if (str.toLowerCase().includes(short)) {
+                    const yearMatch = str.match(/\b(20\d{2}|\d{2})\b/);
+                    let year = yearMatch ? (yearMatch[1].length === 2 ? `20${yearMatch[1]}` : yearMatch[1]) : '2026';
+                    return `${full} ${year}`;
+                }
+            }
+
+            return str;
         };
 
         const parseDate = (val) => {
@@ -202,7 +193,7 @@
         };
 
         const extractSlipData = (text) => {
-            if (!text) return { amount: null, trace: null, potentialRefs: [], detectedDate: null };
+            if (!text) return { amount: null, trace: null, potentialTraces: [], detectedDate: null, receiverMatched: false, accountMatched: false };
 
             const cleanedText = text.replace(/([0-9])O([0-9])/gi, '$10$2')
                                    .replace(/([0-9])l([0-9])/gi, '$11$2');
@@ -213,16 +204,13 @@
             const amount = candidates.length > 0 ? Math.max(...candidates) : null;
 
             let trace = null;
-            const traceMatch = cleanedText.match(/(?:TRACE|SEQ|TXN|REF|NO|FT)[\s:.-]*([A-Z0-9]{4,12})/i);
-            if (traceMatch) trace = traceMatch[1];
-
-            const potentialRefs = [];
-            const refMatches = cleanedText.matchAll(/\b[A-Z0-9]{6,20}\b/g);
-            for (const m of refMatches) {
-                const val = m[0];
-                if (/\d/.test(val) && /[A-Z]/.test(val) && !potentialRefs.includes(val)) {
-                    potentialRefs.push(val);
-                }
+            const potentialTraces = [];
+            
+            // STRICT RULE: Require explicit keyword (TRACE, SEQ, TXN, REF) before extracting 4-digit trace number
+            const traceLabelMatch = cleanedText.match(/(?:TRACE|SEQ|TXN|REF)[\s:.-]*(\d{4})\b/i);
+            if (traceLabelMatch) {
+                trace = traceLabelMatch[1];
+                potentialTraces.push(trace);
             }
 
             let detectedDate = null;
@@ -231,7 +219,10 @@
                 detectedDate = parseDate(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
             }
 
-            return { amount, trace, potentialRefs, detectedDate };
+            const receiverMatched = /H\s*G\s*A\s*M\s*R\s*GAMAGE|GAMAGE\s*HGAMR|MICHAEL\s*RANUKA\s*GAMAGE/i.test(cleanedText);
+            const accountMatched = /1020023476/.test(cleanedText);
+
+            return { amount, trace, potentialTraces, detectedDate, receiverMatched, accountMatched };
         };
 
         const DB_KEY = 'audit_core_db_v23';
@@ -242,12 +233,25 @@
             return match ? parseInt(match[0], 10) : 1;
         };
 
+        const getFamilyClusterKey = (id, familyLinks) => {
+            const cluster = familyLinks[id];
+            if (cluster && Array.isArray(cluster)) {
+                const uniqueCluster = [...new Set(cluster)].sort();
+                if (uniqueCluster.length > 1) {
+                    return 'FAM-' + uniqueCluster.join('_');
+                }
+            }
+            return 'IND-' + id;
+        };
+
         const App = () => {
             const [config, setConfig] = useState({
                 gradeFees: { 1: 3500, 2: 3000, 3: 3000, 4: 3000, 5: 3000, 6: 3000, 7: 3000, 8: 3000, 9: 3000, 10: 3000, 11: 3000 },
                 lateFee: 500,
                 lateLogicStart: getTodayDDMMYYYY(),
-                auditMonth: 'July 2026'
+                auditMonth: 'August 2026',
+                depositAccountOwner: 'H G A M R Gamage',
+                depositAccountNumber: '1020023476'
             });
 
             const [processedData, setProcessedData] = useState({ 
@@ -262,7 +266,7 @@
             const [ocrProgress, setOcrProgress] = useState({ total: 0, processed: 0, text: "Idle", isRunning: false });
             const [results, setResults] = useState([]);
             const [isAuditing, setIsAuditing] = useState(false);
-            const [status, setStatus] = useState("Initializing Engine...");
+            const [status, setStatus] = useState("Engine Ready");
             const [intervention, setIntervention] = useState(null); 
             const [modalNote, setModalNote] = useState("");
             const [activeFilter, setActiveFilter] = useState('all');
@@ -272,42 +276,42 @@
             const [isReviewMode, setIsReviewMode] = useState(false);
             const [selectedTokens, setSelectedTokens] = useState([]);
 
+            // Interactive Manual Bank Statement Lookup Inputs in Inspection Modal
+            const [manualTraceSearch, setManualTraceSearch] = useState('');
+            const [manualDescSearch, setManualDescSearch] = useState('');
+
             const [fullscreenSlip, setFullscreenSlip] = useState(null);
             const [zoomLevel, setZoomLevel] = useState(1);
             const [rotation, setRotation] = useState(0);
+            const [scanningCardId, setScanningCardId] = useState(null);
 
-            // --- SECONDARY AUDIT WORKFLOW STATE ---
-            const [secondaryReportData, setSecondaryReportData] = useState([]);
-            const [secondarySlips, setSecondarySlips] = useState([]);
-            const [secondaryMasterMap, setSecondaryMasterMap] = useState({});
-            const [secondaryFamilyMap, setSecondaryFamilyMap] = useState({});
-            const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('all');
-            const [secondarySearchQuery, setSecondarySearchQuery] = useState('');
-            const [selectedSecondaryStudent, setSelectedSecondaryStudent] = useState(null);
-            const [secondaryStatus, setSecondaryStatus] = useState("Ready for Secondary Report & Slips Import");
-            const parentCardRef = useRef(null);
-
-            // Interactive Image Adjuster State for Inspection Modal
+            // Image Adjuster / Preprocessing Tweak State
             const [imgContrast, setImgContrast] = useState(1.4);
             const [imgBrightness, setImgBrightness] = useState(0);
             const [imgThreshold, setImgThreshold] = useState(160);
             const [isRescanning, setIsRescanning] = useState(false);
             const [customPreviewUrl, setCustomPreviewUrl] = useState(null);
 
-            // Custom Modal Dialog & Toast State
+            // Toast & Confirmation Modal
             const [toast, setToast] = useState(null);
             const [confirmDialog, setConfirmDialog] = useState(null);
 
-            // Dynamic Worker Pool & Queue Refs
+            // Secondary Audit Workflow State
+            const [secondaryReportData, setSecondaryReportData] = useState([]);
+            const [secondarySlips, setSecondarySlips] = useState([]);
+            const [selectedSecondaryStudent, setSelectedSecondaryStudent] = useState(null);
+            const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('all');
+            const [secondarySearchQuery, setSecondarySearchQuery] = useState('');
+            const [secondaryStatus, setSecondaryStatus] = useState('Secondary Audit Engine Idle');
+
+            // Worker Pool & Queue Refs
             const schedulerRef = useRef(null);
             const workerPoolRef = useRef([]);
             const poolSizeRef = useRef(Math.min(navigator.hardwareConcurrency || 4, 4));
             const captureAreaRef = useRef(null);
+            const parentCardRef = useRef(null);
             const saveTimeoutRef = useRef(null);
-            const processingRef = useRef(false);
-            const queueRef = useRef([]);
             const cacheRef = useRef({});
-            const skipCurrentRef = useRef(false);
             const bankIndexRef = useRef(new Map());
 
             const showToast = (message, type = 'info') => {
@@ -324,7 +328,7 @@
 
             const requestWakeLock = async () => {
                 if ('wakeLock' in navigator) {
-                    try { await navigator.wakeLock.request('screen'); } catch (e) { console.log("Wake Lock unsupported"); }
+                    try { await navigator.wakeLock.request('screen'); } catch (e) {}
                 }
             };
 
@@ -333,21 +337,6 @@
                 saveTimeoutRef.current = setTimeout(() => saveToDB(), 1500); 
                 return () => clearTimeout(saveTimeoutRef.current);
             }, [results, config, processedData]);
-
-            useEffect(() => {
-                const handleKey = (e) => {
-                    if (fullscreenSlip) {
-                        if (e.key === 'Escape') setFullscreenSlip(null);
-                        return;
-                    }
-                    if (intervention) {
-                        if (e.key === 'Enter' && e.ctrlKey) isReviewMode ? saveReviewAndNext() : setIntervention(null);
-                        if (e.key === 'Escape') isReviewMode ? closeReview() : setIntervention(null);
-                    }
-                };
-                window.addEventListener('keydown', handleKey);
-                return () => window.removeEventListener('keydown', handleKey);
-            }, [intervention, fullscreenSlip, isReviewMode, results]);
 
             useEffect(() => {
                 if (!intervention) {
@@ -402,7 +391,7 @@
                 try {
                     const saved = await idbKeyval.get(DB_KEY);
                     if (saved) {
-                        setConfig(prev => ({ ...prev, ...(saved.config || {}) }));
+                        setConfig(saved.config || config);
                         setResults(saved.results || []);
                         setProcessedData(prev => ({
                             ...prev,
@@ -428,96 +417,218 @@
                 });
             };
 
-            const startOcrQueue = async (newItems = []) => {
-                const existingIds = new Set(queueRef.current.map(i => i.id));
-                const uniqueNew = newItems.filter(i => !existingIds.has(i.id) && !cacheRef.current[i.name]);
+            const analyzeStudent = (student, cluster, bankIndex, currentConfig, fullBankList, allStudentsMap, ocrData = null) => {
+                const penaltyDate = parseDate(currentConfig.lateLogicStart);
+                const { amount: slipAmount, trace: slipTrace, potentialTraces = [], detectedDate: slipDate, receiverMatched = false, accountMatched = false } = ocrData || {};
 
-                if (uniqueNew.length === 0) return;
+                const indivGradeNum = parseGradeNumber(student.grade);
+                const indivBaseFee = Number(currentConfig.gradeFees[indivGradeNum] !== undefined ? currentConfig.gradeFees[indivGradeNum] : (indivGradeNum === 1 ? 3500 : 3000));
 
-                queueRef.current = [...queueRef.current, ...uniqueNew];
-                setOcrProgress(prev => ({ 
-                    ...prev, 
-                    total: queueRef.current.length + Object.keys(cacheRef.current).length, 
-                    processed: Object.keys(cacheRef.current).length 
-                }));
+                let familyBaseFee = 0;
+                let familyMembersInfo = [];
+                const uniqueCluster = [...new Set(cluster || [])];
+                const seenTokens = new Set();
 
-                if (!processingRef.current) {
-                    processingRef.current = true;
-                    setOcrProgress(prev => ({ ...prev, isRunning: true }));
-                    processQueueLoop();
-                }
-            };
+                uniqueCluster.forEach(memberId => {
+                    const mem = allStudentsMap[memberId] || (memberId === student.token ? student : null);
+                    if (mem && !seenTokens.has(mem.token)) {
+                        seenTokens.add(mem.token);
+                        const gNum = parseGradeNumber(mem.grade);
+                        const feeForGrade = Number(currentConfig.gradeFees[gNum] !== undefined ? currentConfig.gradeFees[gNum] : (gNum === 1 ? 3500 : 3000));
+                        familyBaseFee += feeForGrade;
+                        familyMembersInfo.push({ id: mem.token, token: mem.token, name: mem.name, grade: mem.grade, baseFee: feeForGrade });
+                    }
+                });
 
-            const processQueueLoop = async () => {
-                while (queueRef.current.length > 0 && processingRef.current) {
-                    if (!schedulerRef.current) await initEngine();
+                let candidateTxns = [];
 
-                    const batchSize = poolSizeRef.current;
-                    const batch = queueRef.current.splice(0, batchSize);
-                    setOcrProgress(prev => ({ ...prev, text: `Parallel Scanning Batch (${batch.length} slips)...` }));
+                // 1. Direct Token Match (100% confidence)
+                cluster.forEach(cid => {
+                    if (bankIndex.has(cid)) {
+                        bankIndex.get(cid).forEach(txn => {
+                            candidateTxns.push({ ...txn, method: 'Direct Token Match', confidence: 100 });
+                        });
+                    }
+                });
 
-                    const batchPromises = batch.map(async (doc) => {
-                        let text = "Unreadable";
-                        let slipData = { amount: null, trace: null, potentialRefs: [], detectedDate: null };
-
-                        try {
-                            let imageToScan = doc.url;
-                            if (doc.type === 'application/pdf') {
-                                const pdf = await pdfjsLib.getDocument(doc.url).promise;
-                                const page = await pdf.getPage(1);
-                                const viewport = page.getViewport({ scale: 2.0 });
-                                const canvas = document.createElement('canvas');
-                                const context = canvas.getContext('2d');
-                                canvas.height = viewport.height;
-                                canvas.width = viewport.width;
-                                await page.render({ canvasContext: context, viewport: viewport }).promise;
-                                imageToScan = canvas.toDataURL('image/jpeg');
-                            }
-                            const processedImg = await preprocessImage(imageToScan);
-                            
-                            const ret = await schedulerRef.current.addJob('recognize', processedImg);
-                            text = ret.data.text;
-                            slipData = extractSlipData(text);
-                        } catch (err) {
-                            text = `Error: ${err.message}`;
-                        }
-
-                        cacheRef.current[doc.name] = { text, ...slipData };
-
-                        const student = processedData.studentMap[doc.id];
-                        if (student) {
-                            const cluster = processedData.familyLinks[doc.id] || [doc.id];
-                            const newResult = analyzeStudent(student, cluster, bankIndexRef.current, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
-                            setResults(prevResults => prevResults.map(r => r.id === doc.id ? newResult : r));
+                // 2. Exact Full Name Match (100% confidence)
+                if (candidateTxns.length === 0 && student.name && student.name.length > 3) {
+                    const cleanStudentName = student.name.trim().toUpperCase();
+                    fullBankList.forEach(txn => {
+                        if (txn.desc.includes(cleanStudentName)) {
+                            candidateTxns.push({ ...txn, method: 'Exact Full Name Match', confidence: 100 });
                         }
                     });
-
-                    await Promise.all(batchPromises);
-
-                    setOcrProgress(prev => ({ 
-                        ...prev, 
-                        processed: Object.keys(cacheRef.current).length,
-                        text: queueRef.current.length > 0 ? "Next Parallel Batch..." : "Idle"
-                    }));
-
-                    await new Promise(r => setTimeout(r, 20));
                 }
 
-                processingRef.current = false;
-                setOcrProgress(prev => ({ ...prev, isRunning: false, text: "Idle" }));
-                setStatus("Multi-threaded OCR Complete");
+                // 3. Explicit OCR Trace Match
+                if (candidateTxns.length === 0 && (slipTrace || potentialTraces.length > 0)) {
+                    const searchTraces = [slipTrace, ...potentialTraces].filter(Boolean);
+                    searchTraces.forEach(trCode => {
+                        fullBankList.forEach(txn => {
+                            const traceRegex = new RegExp(`\\b${trCode}\\b`, 'i');
+                            if (traceRegex.test(txn.desc) || txn.desc.includes(trCode)) {
+                                candidateTxns.push({ ...txn, method: `OCR TRACE #${trCode} Match`, confidence: 100 });
+                            }
+                        });
+                    });
+                }
+
+                candidateTxns = [...new Map(candidateTxns.map(item => [item.id, item])).values()].sort((a,b) => b.confidence - a.confidence);
+
+                const totalPaid = candidateTxns.reduce((sum, t) => sum + t.amount, 0);
+                const dates = candidateTxns.map(t => t.date).filter(Boolean);
+                const effDate = dates.length > 0 ? new Date(Math.min(...dates)) : (slipDate || student.uploadTimestamp);
+
+                const isLateSubmission = effDate && penaltyDate && effDate >= penaltyDate;
+                const requiredLateFee = isLateSubmission ? Number(currentConfig.lateFee || 500) : 0;
+
+                const indivTotalExpected = indivBaseFee + requiredLateFee;
+                const familyTotalExpected = familyBaseFee + (isLateSubmission ? requiredLateFee * cluster.length : 0);
+
+                let expectedBaseFee = indivBaseFee;
+                let totalExpected = indivTotalExpected;
+                let isFamilyPayment = false;
+
+                if (cluster.length > 1 && (Math.abs(totalPaid - familyTotalExpected) < 1.0 || Math.abs(totalPaid - familyBaseFee) < 1.0)) {
+                    expectedBaseFee = familyBaseFee;
+                    totalExpected = familyTotalExpected;
+                    isFamilyPayment = true;
+                }
+
+                const has100PercentMatch = candidateTxns.length > 0 && candidateTxns.some(t => t.confidence === 100);
+                const isAmountExactlyMatched = Math.abs(totalPaid - totalExpected) < 1.0 || Math.abs(totalPaid - expectedBaseFee) < 1.0;
+
+                let statusType = 'unmatched';
+                let autoComment = "";
+
+                let autoAccountNameVerified = receiverMatched || has100PercentMatch;
+                let autoAccountNumVerified = accountMatched || has100PercentMatch;
+
+                if (has100PercentMatch) {
+                    if (isAmountExactlyMatched) {
+                        if (totalPaid >= totalExpected) {
+                            statusType = 'confirmed';
+                            autoComment = isLateSubmission 
+                                ? `VERIFIED: Base Fee (Rs.${expectedBaseFee}) + Late Fee (Rs.${requiredLateFee}) fully satisfied.`
+                                : `VERIFIED: Base Fee (Rs.${expectedBaseFee}) paid in full.`;
+                        } else if (totalPaid >= expectedBaseFee && isLateSubmission) {
+                            statusType = 'late_fee_missing';
+                            autoComment = `Late Fees Not Paid`;
+                        }
+                    } else if (totalPaid > 0) {
+                        statusType = 'odd';
+                        autoComment = `FLAGGED: Partial Amount (Paid Rs.${totalPaid} vs Expected Rs.${totalExpected})`;
+                    }
+                } else if (totalPaid > 0) {
+                    statusType = 'odd';
+                    autoComment = `FLAGGED: Partial Amount (Paid Rs.${totalPaid} vs Expected Rs.${totalExpected})`;
+                } else {
+                    statusType = 'unmatched';
+                    autoComment = "Not Available in Bank Statement";
+                }
+
+                const infoStr = (student.paymentInfo || "").toString().trim().toUpperCase();
+                const notesStr = (student.notes || "").toString().trim();
+                const normalizedMonth = normalizeMonthString(student.month);
+                
+                const isFuturePayment = statusType !== 'late_fee_missing' && (
+                    infoStr.startsWith('OTHER') || 
+                    /future|next month|advance|other month/i.test(notesStr) ||
+                    /future|next month|advance|other month/i.test(infoStr) ||
+                    (normalizedMonth && currentConfig.auditMonth && normalizedMonth.toLowerCase() !== currentConfig.auditMonth.toLowerCase() && normalizedMonth.length > 2)
+                );
+
+                return {
+                    id: student.token,
+                    folder: student.name,
+                    grade: student.grade,
+                    paid: totalPaid,
+                    statusType,
+                    effDate,
+                    expected: totalExpected,
+                    baseExpected: expectedBaseFee,
+                    lateFeeAmount: requiredLateFee,
+                    isLateSubmission,
+                    matches: candidateTxns,
+                    link: student.link,
+                    forensicNote: autoComment,
+                    ocrAmount: slipAmount,
+                    ocrTrace: slipTrace,
+                    paymentInfo: student.paymentInfo,
+                    notes: student.notes,
+                    month: normalizedMonth,
+                    isFuturePayment,
+                    isFamilyPayment,
+                    familyMembers: familyMembersInfo,
+                    familyClusterKey: getFamilyClusterKey(student.token, processedData.familyLinks),
+                    accountNameVerified: autoAccountNameVerified,
+                    accountNumVerified: autoAccountNumVerified,
+                    timestamp: new Date().toLocaleString(),
+                    isAudited: false
+                };
             };
 
-            const stopOcr = () => { processingRef.current = false; setOcrProgress(prev => ({ ...prev, isRunning: false, text: "Paused" })); };
-            const skipCurrentOcr = () => { skipCurrentRef.current = true; };
+            const runSmartAudit = async () => {
+                if (!assetStatus.master || !assetStatus.bank) {
+                    return showToast("Please load Master Student CSV and Bank Statement CSV first.", "error");
+                }
+                setIsAuditing(true);
+                setResults([]);
 
-            const rescanModalImage = async () => {
-                if (!intervention) return;
-                const slip = processedData.receipts.find(r => r.id === intervention.id);
-                if (!slip) return showToast("No image slip loaded for this student.", "error");
+                const { studentMap, bankList, familyLinks } = processedData;
+                setStatus("Indexing Bank Transactions...");
 
-                setIsRescanning(true);
+                const bankTokenMap = new Map(); 
+                const extractVBATokens = (str) => {
+                    if (!str) return [];
+                    const matches = str.match(/\b\d{3,5}\b/g) || [];
+                    const exclusions = ['2023', '2024', '2025', '2026', '2027', '2028'];
+                    return matches.filter(m => !exclusions.includes(m));
+                };
+
+                bankList.forEach(txn => {
+                    const tokens = extractVBATokens(txn.desc);
+                    tokens.forEach(t => {
+                        if (!bankTokenMap.has(t)) bankTokenMap.set(t, []);
+                        bankTokenMap.get(t).push(txn);
+                    });
+                });
+                bankIndexRef.current = bankTokenMap;
+
+                setStatus("Executing Strict Audit Engine with Family Alignment...");
+                const initialResults = [];
+                const allIds = Object.keys(studentMap);
+
+                for (const sid of allIds) {
+                    const student = studentMap[sid];
+                    const cluster = familyLinks[sid] || [sid];
+                    const slip = processedData.receipts.find(r => r.id === sid);
+                    const cachedOcr = slip ? cacheRef.current[slip.name] : null;
+
+                    const res = analyzeStudent(student, cluster, bankTokenMap, config, bankList, studentMap, cachedOcr);
+                    initialResults.push(res);
+                }
+
+                const familySortedResults = initialResults.sort((a, b) => {
+                    if (a.familyClusterKey !== b.familyClusterKey) {
+                        return a.familyClusterKey.localeCompare(b.familyClusterKey, undefined, { numeric: true });
+                    }
+                    return a.id.toString().localeCompare(b.id.toString(), undefined, { numeric: true });
+                });
+
+                setResults(familySortedResults);
+                setStatus("Audit Ledger Matched & Family Aligned. Ready for Manual Verification.");
+                setIsAuditing(false);
+            };
+
+            const scanSingleCardOcr = async (studentId) => {
+                const slip = processedData.receipts.find(r => r.id === studentId);
+                if (!slip) return showToast(`No slip image loaded for student #${studentId}`, "error");
+
+                setScanningCardId(studentId);
                 try {
+                    if (!schedulerRef.current) await initEngine();
                     let imageToScan = slip.url;
                     if (slip.type.includes('pdf')) {
                         const pdf = await pdfjsLib.getDocument(slip.url).promise;
@@ -531,9 +642,47 @@
                         imageToScan = canvas.toDataURL('image/jpeg');
                     }
 
-                    const enhancedImg = await preprocessImage(imageToScan, { contrast: imgContrast, brightness: imgBrightness, thresholdUpper: imgThreshold });
-                    const res = await schedulerRef.current.addJob('recognize', enhancedImg);
-                    const text = res.data.text;
+                    const processedImg = await preprocessImage(imageToScan);
+                    const ret = await schedulerRef.current.addJob('recognize', processedImg);
+                    const text = ret.data.text;
+                    const slipData = extractSlipData(text);
+
+                    cacheRef.current[slip.name] = { text, ...slipData };
+
+                    const student = processedData.studentMap[studentId];
+                    const cluster = processedData.familyLinks[studentId] || [studentId];
+                    const updatedRes = analyzeStudent(student, cluster, bankIndexRef.current, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
+
+                    setResults(prev => prev.map(r => r.id === studentId ? updatedRes : r));
+                    if (intervention && intervention.id === studentId) {
+                        setIntervention(updatedRes);
+                    }
+                    showToast(`OCR Scan complete for #${studentId}. TRACE: ${slipData.trace || 'None found'}`, "success");
+                } catch (e) {
+                    showToast(`OCR Scan error: ${e.message}`, "error");
+                } finally {
+                    setScanningCardId(null);
+                }
+            };
+
+            const rescanModalImageWithAdjuster = async () => {
+                if (!intervention) return;
+                const slip = processedData.receipts.find(r => r.id === intervention.id);
+                if (!slip || slip.type.includes('pdf')) return showToast("Image adjustment is applicable to JPG/PNG images only.", "info");
+
+                setIsRescanning(true);
+                try {
+                    if (!schedulerRef.current) await initEngine();
+                    const tweakedImgDataUrl = await preprocessImage(slip.url, {
+                        contrast: imgContrast,
+                        brightness: imgBrightness,
+                        thresholdUpper: imgThreshold
+                    });
+                    
+                    setCustomPreviewUrl(tweakedImgDataUrl);
+
+                    const ret = await schedulerRef.current.addJob('recognize', tweakedImgDataUrl);
+                    const text = ret.data.text;
                     const slipData = extractSlipData(text);
 
                     cacheRef.current[slip.name] = { text, ...slipData };
@@ -541,16 +690,131 @@
                     const student = processedData.studentMap[intervention.id];
                     const cluster = processedData.familyLinks[intervention.id] || [intervention.id];
                     const updatedRes = analyzeStudent(student, cluster, bankIndexRef.current, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
-                    
-                    setResults(prev => prev.map(r => r.id === intervention.id ? updatedRes : r));
+
                     setIntervention(updatedRes);
-                    setModalNote(updatedRes.forensicNote || "");
-                    showToast("OCR re-scan completed with updated image filters!", "success");
+                    setResults(prev => prev.map(r => r.id === intervention.id ? updatedRes : r));
+                    showToast(`Custom Image Rescan Complete! TRACE: ${slipData.trace || 'None'}`, "success");
                 } catch (e) {
-                    showToast(`Re-scan failed: ${e.message}`, "error");
+                    showToast(`Rescan error: ${e.message}`, "error");
                 } finally {
                     setIsRescanning(false);
                 }
+            };
+
+            const openReview = (res) => { 
+                setIntervention(res); 
+                setModalNote(res.forensicNote || ""); 
+                setIsReviewMode(true);
+                setImgContrast(1.4);
+                setImgBrightness(0);
+                setImgThreshold(160);
+                setManualTraceSearch('');
+                setManualDescSearch('');
+            };
+
+            const saveReviewAndNext = () => {
+                if (!intervention) return;
+
+                if (!intervention.accountNameVerified || !intervention.accountNumVerified) {
+                    showToast("Please visually confirm and tick Receiver Name & Account Number before proceeding.", "error");
+                    return;
+                }
+
+                const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
+                const updatedResults = results.map(r => r.id === intervention.id ? { ...r, forensicNote: modalNote, accountNameVerified: intervention.accountNameVerified, accountNumVerified: intervention.accountNumVerified, isAudited: true } : r);
+                setResults(updatedResults);
+
+                if (currentIdx !== -1 && currentIdx + 1 < filteredResults.length) {
+                    const nextItem = filteredResults[currentIdx + 1];
+                    const updatedNext = updatedResults.find(r => r.id === nextItem.id) || nextItem;
+                    setIntervention(updatedNext);
+                    setModalNote(updatedNext.forensicNote || "");
+                    setManualTraceSearch('');
+                    setManualDescSearch('');
+                } else {
+                    setIntervention(null);
+                    setIsReviewMode(false);
+                    setStatus("Manual Audit complete for this view!");
+                    showToast("Manual Audit complete for current view!", "success");
+                }
+            };
+
+            const closeReview = () => { setIntervention(null); setIsReviewMode(false); };
+
+            const continueManualAudit = () => {
+                if (results.length === 0) return showToast("Please load datasets and run the audit first.", "error");
+                const nextUnaudited = results.find(r => !r.isAudited);
+                if (nextUnaudited) {
+                    openReview(nextUnaudited);
+                } else {
+                    showToast("All entries have already been manually audited!", "info");
+                    openReview(results[0]);
+                }
+            };
+
+            const attachManualBankTxn = (bankTxn) => {
+                if (!intervention) return;
+                const existingMatches = intervention.matches || [];
+                const alreadyLinked = existingMatches.some(m => m.id === bankTxn.id);
+                const newMatches = alreadyLinked ? existingMatches : [...existingMatches, { ...bankTxn, method: 'Manual Search Link', confidence: 100 }];
+                
+                const newPaid = newMatches.reduce((sum, t) => sum + t.amount, 0);
+                const isExact = Math.abs(newPaid - intervention.expected) < 1.0;
+                
+                let newNote = intervention.forensicNote;
+                let newStatus = intervention.statusType;
+
+                if (isExact) {
+                    newStatus = 'confirmed';
+                    newNote = `VERIFIED: Deposit Confirmed via Manual Bank Link (Rs. ${newPaid})`;
+                } else {
+                    newStatus = 'odd';
+                    newNote = `FLAGGED: Partial Amount (Paid Rs. ${newPaid} vs Expected Rs. ${intervention.expected})`;
+                }
+
+                const updatedIntervention = {
+                    ...intervention,
+                    matches: newMatches,
+                    paid: newPaid,
+                    statusType: newStatus,
+                    forensicNote: newNote
+                };
+
+                setIntervention(updatedIntervention);
+                setModalNote(newNote);
+                setResults(prev => prev.map(r => r.id === intervention.id ? updatedIntervention : r));
+                showToast(`Bank transaction Rs.${bankTxn.amount} attached to student #${intervention.id}!`, "success");
+            };
+
+            const manualSearchResultTxns = useMemo(() => {
+                if (!manualTraceSearch && !manualDescSearch) return [];
+                const traceQ = manualTraceSearch.trim();
+                const descQ = manualDescSearch.trim().toUpperCase();
+
+                return processedData.bankList.filter(txn => {
+                    const matchTrace = traceQ ? new RegExp(`\\b${traceQ}\\b`, 'i').test(txn.desc) || txn.desc.includes(traceQ) : true;
+                    const matchDesc = descQ ? txn.desc.toUpperCase().includes(descQ) : true;
+                    return matchTrace && matchDesc;
+                }).slice(0, 5);
+            }, [manualTraceSearch, manualDescSearch, processedData.bankList]);
+
+            const toggleSelectAll = () => {
+                if (selectedTokens.length === filteredResults.length) {
+                    setSelectedTokens([]);
+                } else {
+                    setSelectedTokens(filteredResults.map(r => r.id));
+                }
+            };
+
+            const toggleSelectToken = (id) => {
+                setSelectedTokens(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+            };
+
+            const batchSetStatus = (statusLabel) => {
+                if (selectedTokens.length === 0) return showToast("Select items first using checkboxes.", "error");
+                setResults(prev => prev.map(r => selectedTokens.includes(r.id) ? { ...r, forensicNote: statusLabel, isAudited: true } : r));
+                setSelectedTokens([]);
+                showToast(`Batch updated ${selectedTokens.length} records!`, "success");
             };
 
             const processFileList = async (files) => {
@@ -651,7 +915,7 @@
                                 found.family = true;
                             }
                         } catch (err) {
-                            console.error(`Error parsing spreadsheet file ${file.name}:`, err);
+                            console.error(`Error parsing file ${file.name}:`, err);
                         }
                     } else if (isSlip) {
                         const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "Unsorted";
@@ -673,551 +937,146 @@
             };
 
             const handleFiles = (e) => {
-                const files = Array.from(e.target.files || []);
-                processFileList(files);
+                processFileList(Array.from(e.target.files || []));
             };
 
             const handleDrop = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                     processFileList(Array.from(e.dataTransfer.files));
                 }
             };
 
-            const handleDragOver = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            };
+            const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
 
-            // --- SECONDARY AUDIT FILE PROCESSOR ---
             const handleSecondaryFiles = async (e) => {
                 const files = Array.from(e.target.files || []);
                 if (files.length === 0) return;
 
-                setSecondaryStatus("Processing Secondary Audit Datasets...");
-                let newReportRows = [...secondaryReportData];
-                let newSlips = [...secondarySlips];
-                let newMaster = { ...secondaryMasterMap };
-                let newFamily = { ...secondaryFamilyMap };
+                setSecondaryStatus('Processing secondary audit files...');
+                let parsedFindings = [];
+                let parsedSlips = [...secondarySlips];
 
                 for (const file of files) {
                     const name = file.name.toLowerCase();
-                    const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls');
-                    const isSlip = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.pdf');
-
-                    if (isSpreadsheet) {
+                    if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
                         try {
                             const buffer = await file.arrayBuffer();
-                            const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+                            const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
                             
-                            // Iterate over all sheets (e.g., Future Payments, Late Fees Not Paid, Master Audit, etc.)
                             wb.SheetNames.forEach(sheetName => {
                                 const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: "" });
-                                if (rows.length < 2) return;
+                                if (rows.length > 1) {
+                                    const headers = rows[0].map(h => (h || "").toString().toLowerCase().trim());
+                                    const tokenIdx = headers.findIndex(h => h.includes('token'));
+                                    const nameIdx = headers.findIndex(h => h.includes('name'));
+                                    const gradeIdx = headers.findIndex(h => h.includes('grade'));
+                                    const paidIdx = headers.findIndex(h => h.includes('paid'));
+                                    const expectedIdx = headers.findIndex(h => h.includes('total expected') || h.includes('expected'));
+                                    const commentIdx = headers.findIndex(h => h.includes('comment') || h.includes('remark'));
 
-                                let headerRowIdx = rows.findIndex(r => r.some(c => c && /token id|student name|status|auditor comment/i.test(c.toString())));
-                                if (headerRowIdx === -1) headerRowIdx = 0;
-
-                                const headers = (rows[headerRowIdx] || []).map(h => (h || "").toString().toLowerCase().trim());
-                                const dataRows = rows.slice(headerRowIdx + 1);
-
-                                const isMasterCSV = name.includes('master') || (headers.includes('student name') && !headers.includes('auditor comment'));
-                                const isFamilyCSV = name.includes('family') || headers.includes('family id') || headers.includes('member ids');
-
-                                if (isMasterCSV) {
-                                    const idIdx = headers.findIndex(h => h.includes('id') || h.includes('token')) !== -1 ? headers.findIndex(h => h.includes('id') || h.includes('token')) : 0;
-                                    const nameIdx = headers.findIndex(h => h.includes('name')) !== -1 ? headers.findIndex(h => h.includes('name')) : 1;
-                                    const gradeIdx = headers.findIndex(h => h.includes('grade')) !== -1 ? headers.findIndex(h => h.includes('grade')) : 2;
-                                    dataRows.forEach(r => {
-                                        const id = (r[idIdx] || "").toString().trim();
-                                        if (id) newMaster[id] = { token: id, name: r[nameIdx] || 'Student', grade: r[gradeIdx] || 'Grade 1' };
-                                    });
-                                } else if (isFamilyCSV) {
-                                    const idFieldIdx = headers.findIndex(h => h.includes('member') || h.includes('family') || h.includes('id')) !== -1 ? headers.findIndex(h => h.includes('member') || h.includes('family') || h.includes('id')) : 0;
-                                    dataRows.forEach(r => {
-                                        const idField = r[idFieldIdx] || r[0];
-                                        if (idField) {
-                                            const cluster = idField.toString().split('-').map(s => s.trim()).filter(Boolean);
-                                            if (cluster.length > 0) cluster.forEach(mid => newFamily[mid] = cluster);
-                                        }
-                                    });
-                                } else {
-                                    // Main Audited Findings Report Sheet
-                                    const tokenIdx = headers.findIndex(h => h.includes('token')) !== -1 ? headers.findIndex(h => h.includes('token')) : 0;
-                                    const nameIdx = headers.findIndex(h => h.includes('name')) !== -1 ? headers.findIndex(h => h.includes('name')) : 1;
-                                    const gradeIdx = headers.findIndex(h => h.includes('grade')) !== -1 ? headers.findIndex(h => h.includes('grade')) : 2;
-                                    const statusIdx = headers.findIndex(h => h.includes('status')) !== -1 ? headers.findIndex(h => h.includes('status')) : 3;
-                                    const paidIdx = headers.findIndex(h => h.includes('amount paid') || h.includes('paid')) !== -1 ? headers.findIndex(h => h.includes('amount paid') || h.includes('paid')) : 4;
-                                    const baseIdx = headers.findIndex(h => h.includes('base fee')) !== -1 ? headers.findIndex(h => h.includes('base fee')) : 5;
-                                    const lateIdx = headers.findIndex(h => h.includes('late fee')) !== -1 ? headers.findIndex(h => h.includes('late fee')) : 6;
-                                    const totalIdx = headers.findIndex(h => h.includes('total expected')) !== -1 ? headers.findIndex(h => h.includes('total expected')) : 7;
-                                    const lateSubIdx = headers.findIndex(h => h.includes('late submission')) !== -1 ? headers.findIndex(h => h.includes('late submission')) : 8;
-                                    const linkIdx = headers.findIndex(h => h.includes('link') || h.includes('url')) !== -1 ? headers.findIndex(h => h.includes('link') || h.includes('url')) : 9;
-                                    const ocrAmtIdx = headers.findIndex(h => h.includes('ocr amount')) !== -1 ? headers.findIndex(h => h.includes('ocr amount')) : 10;
-                                    const dateIdx = headers.findIndex(h => h.includes('date')) !== -1 ? headers.findIndex(h => h.includes('date')) : 11;
-                                    const bankDescIdx = headers.findIndex(h => h.includes('bank description')) !== -1 ? headers.findIndex(h => h.includes('bank description')) : 12;
-                                    const commentIdx = headers.findIndex(h => h.includes('comment') || h.includes('remark')) !== -1 ? headers.findIndex(h => h.includes('comment') || h.includes('remark')) : 14;
-
-                                    dataRows.forEach((r, idx) => {
-                                        const token = (r[tokenIdx] || "").toString().trim();
-                                        const nameVal = (r[nameIdx] || "").toString().trim();
-                                        if (token || nameVal) {
-                                            const existingIdx = newReportRows.findIndex(item => item.token === token && item.name === nameVal);
-                                            const rec = {
-                                                id: `SEC-${token || idx}-${sheetName}`,
-                                                token: token || `TOK-${idx}`,
-                                                name: nameVal || 'Student',
-                                                grade: r[gradeIdx] || 'Grade 1',
-                                                status: (r[statusIdx] || 'UNMATCHED').toString().toUpperCase(),
-                                                paid: parseFloat((r[paidIdx] || "0").toString().replace(/,/g, '')) || 0,
-                                                baseFee: parseFloat((r[baseIdx] || "0").toString().replace(/,/g, '')) || 0,
-                                                lateFee: parseFloat((r[lateIdx] || "0").toString().replace(/,/g, '')) || 0,
-                                                totalExpected: parseFloat((r[totalIdx] || "0").toString().replace(/,/g, '')) || 0,
-                                                isLateSubmission: (r[lateSubIdx] || "").toString().toUpperCase() === 'YES',
-                                                link: r[linkIdx] || '',
-                                                ocrAmount: r[ocrAmtIdx] || '',
-                                                date: r[dateIdx] || '',
-                                                bankDesc: r[bankDescIdx] || 'N/A',
-                                                comment: r[commentIdx] || sheetName || 'Pending Audit Review',
+                                    rows.slice(1).forEach((r, i) => {
+                                        const token = r[tokenIdx >= 0 ? tokenIdx : 0];
+                                        const studentName = r[nameIdx >= 0 ? nameIdx : 1];
+                                        if (token || studentName) {
+                                            parsedFindings.push({
+                                                id: `SEC-${sheetName}-${i}`,
+                                                token: token || 'N/A',
+                                                name: studentName || 'Student',
+                                                grade: r[gradeIdx >= 0 ? gradeIdx : 2] || 'Grade 1',
+                                                paid: r[paidIdx >= 0 ? paidIdx : 4] || '0',
+                                                totalExpected: r[expectedIdx >= 0 ? expectedIdx : 7] || '0',
+                                                comment: r[commentIdx >= 0 ? commentIdx : 12] || 'Audited Record',
                                                 sheetCategory: sheetName
-                                            };
-                                            if (existingIdx !== -1) {
-                                                newReportRows[existingIdx] = rec;
-                                            } else {
-                                                newReportRows.push(rec);
-                                            }
+                                            });
                                         }
                                     });
                                 }
                             });
-                        } catch (err) {
-                            console.error("Secondary Report File Error:", err);
-                        }
-                    } else if (isSlip) {
-                        const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "Unsorted";
+                        } catch (err) { console.error("Secondary Report Error:", err); }
+                    } else if (name.endsWith('.jpg') || name.endsWith('.png') || name.endsWith('.jpeg')) {
+                        const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "";
                         const idFromFolder = (folder.match(/\d+/) || [file.name.match(/\d+/)?.[0] || ""])[0];
-                        newSlips.push({
-                            id: idFromFolder || file.name,
-                            name: file.name,
-                            url: URL.createObjectURL(file),
-                            type: file.type
-                        });
+                        parsedSlips.push({ id: idFromFolder, name: file.name, url: URL.createObjectURL(file) });
                     }
                 }
 
-                setSecondaryReportData(newReportRows);
-                setSecondarySlips(newSlips);
-                setSecondaryMasterMap(newMaster);
-                setSecondaryFamilyMap(newFamily);
-                setSecondaryStatus(`Secondary Workflow Active: ${newReportRows.length} Findings, ${newSlips.length} Slips Loaded`);
-                if (newReportRows.length > 0) setSelectedSecondaryStudent(newReportRows[0]);
-                showToast(`Loaded ${newReportRows.length} audit finding records & ${newSlips.length} payment slips.`, "success");
+                setSecondaryReportData(parsedFindings);
+                setSecondarySlips(parsedSlips);
+                if (parsedFindings.length > 0) setSelectedSecondaryStudent(parsedFindings[0]);
+                setSecondaryStatus(`Secondary Workflow Ready (${parsedFindings.length} Records Loaded)`);
+                showToast(`Secondary Report Loaded: ${parsedFindings.length} records parsed!`, "success");
             };
 
-            const downloadParentCard = async () => {
-                if (!parentCardRef.current || !selectedSecondaryStudent) return;
-                try {
-                    showToast("Generating Authentic Parent Audit Card...", "info");
-                    const canvas = await html2canvas(parentCardRef.current, {
-                        scale: 2.5,
-                        backgroundColor: '#0b0f19',
-                        useCORS: true,
-                        allowTaint: true,
-                        logging: false
-                    });
-                    const link = document.createElement('a');
-                    const cleanName = (selectedSecondaryStudent.name || 'Student').replace(/[^A-Z0-9]/gi, '_');
-                    link.download = `Audit_Verification_Notice_${selectedSecondaryStudent.token}_${cleanName}.png`;
-                    link.href = canvas.toDataURL('image/png');
-                    link.click();
-                    showToast("Parent Audit Certificate Image saved successfully!", "success");
-                } catch (err) {
-                    showToast(`Failed to generate parent image: ${err.message}`, "error");
-                }
-            };
-
-            // Secondary Filtered Findings
             const secondaryCategories = useMemo(() => {
-                const cats = new Set(secondaryReportData.map(r => r.sheetCategory || 'General'));
+                const cats = new Set(secondaryReportData.map(d => d.sheetCategory));
                 return ['all', ...Array.from(cats)];
             }, [secondaryReportData]);
 
             const filteredSecondaryReport = useMemo(() => {
-                return secondaryReportData.filter(r => {
-                    const matchCat = secondaryCategoryFilter === 'all' || r.sheetCategory === secondaryCategoryFilter;
+                return secondaryReportData.filter(item => {
+                    const matchCat = secondaryCategoryFilter === 'all' || item.sheetCategory === secondaryCategoryFilter;
                     const q = secondarySearchQuery.toLowerCase();
-                    const matchSearch = !q || 
-                        r.name.toLowerCase().includes(q) || 
-                        r.token.toLowerCase().includes(q) || 
-                        (r.comment && r.comment.toLowerCase().includes(q));
+                    const matchSearch = !q || item.name.toLowerCase().includes(q) || item.token.toString().includes(q);
                     return matchCat && matchSearch;
                 });
             }, [secondaryReportData, secondaryCategoryFilter, secondarySearchQuery]);
 
             const selectedSecondarySlip = useMemo(() => {
                 if (!selectedSecondaryStudent) return null;
-                // Match slip by token ID or student name in filename
-                return secondarySlips.find(s => s.id === selectedSecondaryStudent.token || s.name.includes(selectedSecondaryStudent.token) || s.name.toUpperCase().includes(selectedSecondaryStudent.name.toUpperCase())) ||
-                       processedData.receipts.find(r => r.id === selectedSecondaryStudent.token);
-            }, [selectedSecondaryStudent, secondarySlips, processedData.receipts]);
+                return secondarySlips.find(s => s.id === selectedSecondaryStudent.token) || secondarySlips[0] || null;
+            }, [selectedSecondaryStudent, secondarySlips]);
 
-
-            const analyzeStudent = (student, cluster, bankIndex, currentConfig, fullBankList, allStudentsMap, ocrData = null) => {
-                const penaltyDate = parseDate(currentConfig.lateLogicStart);
-                const { amount: slipAmount, trace: slipTrace, potentialRefs: slipRefs = [], detectedDate: slipDate } = ocrData || {};
-
-                let matchedTxns = [];
-
-                cluster.forEach(cid => {
-                    if (bankIndex.has(cid)) {
-                        bankIndex.get(cid).forEach(txn => {
-                            matchedTxns.push({ ...txn, method: 'Token Match ID', confidence: 100 });
-                        });
-                    }
-                });
-
-                if (matchedTxns.length === 0 && student.name && student.name.length > 3) {
-                    const nameUpper = student.name.toUpperCase();
-                    fullBankList.forEach(txn => {
-                        if (txn.desc.includes(nameUpper)) {
-                            matchedTxns.push({ ...txn, method: 'Exact Name Match', confidence: 95 });
-                        }
-                    });
-                }
-
-                if (matchedTxns.length === 0 && student.name) {
-                    fullBankList.forEach(txn => {
-                        const sim = fuzzyNameSimilarity(student.name, txn.desc);
-                        if (sim >= 80) {
-                            matchedTxns.push({ ...txn, method: `Fuzzy Name (${sim}%)`, confidence: sim });
-                        }
-                    });
-                }
-
-                if (matchedTxns.length === 0 && ocrData) {
-                    if (slipTrace) {
-                        fullBankList.forEach(txn => {
-                            if (txn.desc.includes(slipTrace)) matchedTxns.push({ ...txn, method: `OCR Trace #${slipTrace}`, confidence: 92 });
-                        });
-                    }
-                    if (matchedTxns.length === 0) {
-                        slipRefs.forEach(ref => {
-                            fullBankList.forEach(txn => {
-                                if (txn.desc.includes(ref)) matchedTxns.push({ ...txn, method: `OCR Ref ${ref}`, confidence: 88 });
-                            });
-                        });
-                    }
-                    if (matchedTxns.length === 0 && slipAmount) {
-                        fullBankList.filter(t => Math.abs(t.amount - slipAmount) < 1.0).forEach(txn => {
-                            matchedTxns.push({ ...txn, method: 'OCR Amount Match', confidence: 65 });
-                        });
-                    }
-                }
-
-                matchedTxns = [...new Map(matchedTxns.map(item => [item.id, item])).values()].sort((a,b) => b.confidence - a.confidence);
-
-                const totalPaid = matchedTxns.reduce((sum, t) => sum + t.amount, 0);
-                const dates = matchedTxns.map(t => t.date).filter(Boolean);
-                const effDate = dates.length > 0 ? new Date(Math.min(...dates)) : (slipDate || student.uploadTimestamp);
-
-                let expectedBaseFee = 0;
-                cluster.forEach(memberId => {
-                    const mem = allStudentsMap[memberId] || (memberId === student.token ? student : null);
-                    const gNum = mem ? parseGradeNumber(mem.grade) : parseGradeNumber(student.grade);
-                    const feeForGrade = Number(currentConfig.gradeFees[gNum] || 3000);
-                    expectedBaseFee += feeForGrade;
-                });
-
-                const isLateSubmission = effDate && penaltyDate && effDate >= penaltyDate;
-                const requiredLateFee = isLateSubmission ? Number(currentConfig.lateFee) : 0;
-                const totalExpected = expectedBaseFee + requiredLateFee;
-
-                let statusType = 'unmatched';
-                let autoComment = "";
-
-                if (totalPaid >= totalExpected) {
-                    statusType = 'confirmed';
-                    autoComment = isLateSubmission 
-                        ? `VERIFIED: Base Fee (Rs.${expectedBaseFee}) + Late Fee (Rs.${requiredLateFee}) fully satisfied.`
-                        : `VERIFIED: Base Fee (Rs.${expectedBaseFee}) paid in full.`;
-                } else if (totalPaid >= expectedBaseFee && isLateSubmission) {
-                    statusType = 'late_fee_missing';
-                    autoComment = `Late Fees Not Paid`;
-                } else if (totalPaid > 0) {
-                    statusType = 'odd';
-                    autoComment = `FLAGGED: Partial Amount (Paid Rs.${totalPaid} vs Expected Rs.${totalExpected})`;
-                } else {
-                    statusType = 'unmatched';
-                    autoComment = "Not Available in Bank Statement";
-                }
-
-                const infoStr = (student.paymentInfo || "").toString().trim().toUpperCase();
-                const notesStr = (student.notes || "").toString().trim();
-                const monthStr = (student.month || "").toString().trim();
-                
-                const isFuturePayment = infoStr.startsWith('OTHER') || 
-                                        /future|next month|advance|other month/i.test(notesStr) ||
-                                        /future|next month|advance|other month/i.test(infoStr) ||
-                                        (monthStr && monthStr.toLowerCase() !== currentConfig.auditMonth.toLowerCase() && monthStr.length > 2);
-
-                return {
-                    id: student.token,
-                    folder: student.name,
-                    grade: student.grade,
-                    paid: totalPaid,
-                    statusType,
-                    effDate,
-                    expected: totalExpected,
-                    baseExpected: expectedBaseFee,
-                    lateFeeAmount: requiredLateFee,
-                    isLateSubmission,
-                    matches: matchedTxns,
-                    link: student.link,
-                    forensicNote: autoComment,
-                    ocrAmount: slipAmount,
-                    ocrTrace: slipTrace,
-                    paymentInfo: student.paymentInfo,
-                    notes: student.notes,
-                    month: student.month,
-                    isFuturePayment: isFuturePayment,
-                    timestamp: new Date().toLocaleString(),
-                    isAudited: false
-                };
-            };
-
-            const runSmartAudit = async () => {
-                if (!assetStatus.master || !assetStatus.bank) {
-                    return showToast("Please load Master Student CSV and Bank Statement CSV first.", "error");
-                }
-                setIsAuditing(true);
-                setResults([]);
-
-                const { studentMap, bankList, familyLinks } = processedData;
-
-                setStatus("Indexing Bank Transactions...");
-
-                const bankTokenMap = new Map(); 
-                const extractVBATokens = (str) => {
-                    if (!str) return [];
-                    const matches = str.match(/\b\d{3,5}\b/g) || [];
-                    const exclusions = ['2023', '2024', '2025', '2026', '2027', '2028'];
-                    return matches.filter(m => !exclusions.includes(m));
-                };
-
-                bankList.forEach(txn => {
-                    const tokens = extractVBATokens(txn.desc);
-                    tokens.forEach(t => {
-                        if (!bankTokenMap.has(t)) bankTokenMap.set(t, []);
-                        bankTokenMap.get(t).push(txn);
-                    });
-                });
-                bankIndexRef.current = bankTokenMap;
-
-                setStatus("Executing Audit Logic...");
-
-                const initialResults = [];
-                const slipsToScan = [];
-                const allIds = Object.keys(studentMap);
-
-                for (const sid of allIds) {
-                    const student = studentMap[sid];
-                    const cluster = familyLinks[sid] || [sid];
-                    const slip = processedData.receipts.find(r => r.id === sid);
-                    const cachedOcr = slip ? cacheRef.current[slip.name] : null;
-
-                    const res = analyzeStudent(student, cluster, bankTokenMap, config, bankList, studentMap, cachedOcr);
-                    const hasStrongMatch = res.matches.some(m => m.confidence >= 80);
-
-                    if (hasStrongMatch) {
-                        initialResults.push(res);
-                    } else {
-                        if (slip) {
-                            initialResults.push({ ...res, statusType: 'scanning', forensicNote: "Queued for Vision OCR Analysis..." });
-                            if (!cachedOcr) slipsToScan.push(slip);
-                        } else {
-                            initialResults.push(res);
-                        }
-                    }
-                }
-
-                setResults(initialResults);
-
-                if (slipsToScan.length > 0) {
-                    setStatus(`Queued ${slipsToScan.length} receipts across worker pool...`);
-                    startOcrQueue(slipsToScan);
-                } else {
-                    setStatus("Audit Execution Complete");
-                }
-
-                setIsAuditing(false);
-            };
-
-            const openReview = (res) => { 
-                setIntervention(res); 
-                setModalNote(res.forensicNote || ""); 
-                setIsReviewMode(true);
-                setImgContrast(1.4);
-                setImgBrightness(0);
-                setImgThreshold(160);
-            };
-
-            const saveReviewAndNext = () => {
-                if (!intervention) return;
-
-                const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
-                const updatedResults = results.map(r => 
-                    r.id === intervention.id 
-                        ? { ...r, forensicNote: modalNote, isAudited: true } 
-                        : r
-                );
-                setResults(updatedResults);
-
-                if (currentIdx !== -1 && currentIdx + 1 < filteredResults.length) {
-                    const nextItem = filteredResults[currentIdx + 1];
-                    const updatedNext = updatedResults.find(r => r.id === nextItem.id) || nextItem;
-                    setIntervention(updatedNext);
-                    setModalNote(updatedNext.forensicNote || "");
-                } else {
-                    setIntervention(null);
-                    setIsReviewMode(false);
-                    setStatus("Manual Audit complete for this view!");
-                    showToast("Manual Audit complete for current view!", "success");
-                }
-            };
-
-            const closeReview = () => { setIntervention(null); setIsReviewMode(false); };
-
-            const continueManualAudit = () => {
-                if (results.length === 0) return showToast("Please load datasets and run the audit first.", "error");
-
-                const nextUnaudited = results.find(r => !r.isAudited);
-                if (nextUnaudited) {
-                    openReview(nextUnaudited);
-                } else {
-                    showToast("All entries have already been manually audited!", "info");
-                    openReview(results[0]);
-                }
-            };
-
-            const isAuditFullyComplete = useMemo(() => {
-                return results.length > 0 && results.every(r => r.isAudited);
-            }, [results]);
-
-            const auditedCount = useMemo(() => {
-                return results.filter(r => r.isAudited).length;
-            }, [results]);
-
-            const toggleSelectAll = () => {
-                if (selectedTokens.length === filteredResults.length) {
-                    setSelectedTokens([]);
-                } else {
-                    setSelectedTokens(filteredResults.map(r => r.id));
-                }
-            };
-
-            const toggleSelectToken = (id) => {
-                setSelectedTokens(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-            };
-
-            const batchSetStatus = (statusLabel) => {
-                if (selectedTokens.length === 0) return showToast("Select items first using checkboxes.", "error");
-                setResults(prev => prev.map(r => selectedTokens.includes(r.id) ? { ...r, forensicNote: statusLabel, isAudited: true } : r));
-                setSelectedTokens([]);
-                showToast(`Batch updated ${selectedTokens.length} records!`, "success");
-            };
-
-            const downloadEvidence = async () => {
-                if (!captureAreaRef.current) return;
+            const downloadParentCard = async () => {
+                if (!parentCardRef.current) return;
                 try {
-                    showToast("Generating evidence image...", "info");
-                    const canvas = await html2canvas(captureAreaRef.current, { 
-                        scale: 2, 
-                        backgroundColor: '#0f172a',
-                        useCORS: true,
-                        allowTaint: true,
-                        logging: false
-                    });
+                    showToast("Generating Parent Advisory Notice Image...", "info");
+                    const canvas = await html2canvas(parentCardRef.current, { scale: 2, backgroundColor: '#0f172a', useCORS: true });
                     const link = document.createElement('a');
-                    const studentName = (intervention.folder || 'Student').replace(/[^A-[a-z0-9]/gi, '_');
-                    link.download = `Audit_Evidence_${intervention.id}_${studentName}.png`;
+                    link.download = `Official_Audit_Notice_${selectedSecondaryStudent?.token}_${(selectedSecondaryStudent?.name || 'Student').replace(/\s+/g, '_')}.png`;
                     link.href = canvas.toDataURL('image/png');
                     link.click();
-                    showToast("Evidence snapshot downloaded successfully!", "success");
-                } catch (e) {
-                    console.error("Evidence capture error:", e);
-                    showToast(`Could not capture evidence: ${e.message}`, "error");
-                }
+                    showToast("Parent Advisory Notice saved successfully!", "success");
+                } catch (e) { showToast(`Export failed: ${e.message}`, "error"); }
             };
 
             const exportReport = () => {
-                if (results.length === 0) {
-                    return showToast("No audit results available to export. Please run the audit first.", "error");
-                }
+                if (results.length === 0) return showToast("No audit results to export. Please run audit first.", "error");
 
-                const mapRecordToExportRow = (r) => {
-                    const matchedBankDescs = r.matches && r.matches.length > 0 ? r.matches.map(m => m.desc).join(' | ') : 'N/A';
-                    const matchedBankAmts = r.matches && r.matches.length > 0 ? r.matches.map(m => `Rs.${m.amount}`).join(' | ') : '0';
-
-                    return {
-                        'Token ID': r.id, 
-                        'Student Name': r.folder, 
-                        'Grade': r.grade || '-',
-                        'Status': r.statusType.toUpperCase(), 
-                        'Amount Paid (LKR)': r.paid, 
-                        'Base Fee Expected (LKR)': r.baseExpected,
-                        'Late Fee Required (LKR)': r.lateFeeAmount,
-                        'Total Expected (LKR)': r.expected,
-                        'Late Submission': r.isLateSubmission ? 'YES' : 'NO',
-                        'OneDrive / Slip Link': r.link || '-',
-                        'OCR Amount Read': r.ocrAmount || '-', 
-                        'Payment / Upload Date': r.effDate ? r.effDate.toLocaleDateString() : '-',
-                        'Matched Bank Description': matchedBankDescs,
-                        'Matched Bank Amount': matchedBankAmts,
-                        'Auditor Comment': r.forensicNote || ''
-                    };
-                };
+                const mapRecordToExportRow = (r) => ({
+                    'Token ID': r.id,
+                    'Student Name': r.folder,
+                    'Grade': r.grade || '-',
+                    'Status': r.statusType.toUpperCase(),
+                    'Amount Paid (LKR)': r.paid,
+                    'Base Fee Expected (LKR)': r.baseExpected,
+                    'Late Fee Required (LKR)': r.lateFeeAmount,
+                    'Total Expected (LKR)': r.expected,
+                    'Late Submission': r.isLateSubmission ? 'YES' : 'NO',
+                    'OneDrive / Slip Link': r.link || '-',
+                    'OCR Trace Read': r.ocrTrace || '-',
+                    'Payment / Upload Date': r.effDate ? r.effDate.toLocaleDateString() : '-',
+                    'Matched Bank Description': r.matches && r.matches.length > 0 ? r.matches.map(m => m.desc).join(' | ') : 'N/A',
+                    'Matched Bank Amount': r.matches && r.matches.length > 0 ? r.matches.map(m => `Rs.${m.amount}`).join(' | ') : '0',
+                    'Auditor Comment': r.forensicNote || ''
+                });
 
                 const wb = XLSX.utils.book_new();
-
                 const futurePayments = results.filter(r => r.isFuturePayment);
                 if (futurePayments.length > 0) {
-                    const futureData = futurePayments.map(mapRecordToExportRow);
-                    const wsFuture = XLSX.utils.json_to_sheet(futureData);
-                    XLSX.utils.book_append_sheet(wb, wsFuture, "Future Payments");
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(futurePayments.map(mapRecordToExportRow)), "Future Payments");
                 }
 
                 STANDARD_COMMENTS.forEach(stdComment => {
-                    const matchingRecords = results.filter(r => 
-                        !r.isFuturePayment && r.forensicNote && r.forensicNote.trim().toLowerCase().startsWith(stdComment.toLowerCase())
-                    );
-
+                    const matchingRecords = results.filter(r => !r.isFuturePayment && r.forensicNote?.trim().toLowerCase().startsWith(stdComment.toLowerCase()));
                     if (matchingRecords.length > 0) {
-                        const stdData = matchingRecords.map(mapRecordToExportRow);
-                        const wsStd = XLSX.utils.json_to_sheet(stdData);
                         let cleanTabName = stdComment.replace(/[:\\/?*\[\]]/g, '').substring(0, 30).trim();
-                        XLSX.utils.book_append_sheet(wb, wsStd, cleanTabName);
+                        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matchingRecords.map(mapRecordToExportRow)), cleanTabName);
                     }
                 });
 
-                const otherRecords = results.filter(r => {
-                    if (r.isFuturePayment) return false;
-                    const note = (r.forensicNote || "").trim();
-                    if (!note) return true;
-                    const isStandard = STANDARD_COMMENTS.some(sc => note.toLowerCase().startsWith(sc.toLowerCase()));
-                    return !isStandard;
-                });
-
-                if (otherRecords.length > 0) {
-                    const otherData = otherRecords.map(mapRecordToExportRow);
-                    const wsOther = XLSX.utils.json_to_sheet(otherData);
-                    XLSX.utils.book_append_sheet(wb, wsOther, "Other");
-                }
-
                 if (wb.SheetNames.length === 0) {
-                    const allData = results.map(mapRecordToExportRow);
-                    const wsAll = XLSX.utils.json_to_sheet(allData);
-                    XLSX.utils.book_append_sheet(wb, wsAll, "Master Audit");
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(results.map(mapRecordToExportRow)), "Master Audit");
                 }
 
                 XLSX.writeFile(wb, `AuditCore_Report_${config.auditMonth.replace(/\s+/g, '_')}_v23.xlsx`);
@@ -1237,18 +1096,14 @@
                     'Required Base Fee (LKR)': r.baseExpected,
                     'Missing Late Fee (LKR)': r.lateFeeAmount,
                     'OneDrive / Slip Link': r.link || '-',
-                    'Matched Bank Description': r.matches && r.matches.length > 0 ? r.matches.map(m => m.desc).join(' | ') : 'N/A',
-                    'Matched Bank Amount': r.matches && r.matches.length > 0 ? r.matches.map(m => `Rs.${m.amount}`).join(' | ') : '0',
                     'Auditor Comment': r.forensicNote
                 }));
-                const ws = XLSX.utils.json_to_sheet(data);
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Late Fee Defaulters");
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Late Fee Defaulters");
                 XLSX.writeFile(wb, `Late_Fee_Defaulters_${config.auditMonth.replace(/\s+/g, '_')}.xlsx`);
                 showToast("Late Fee Defaulters report generated!", "success");
             };
 
-            // Stats Calculations
             const stats = useMemo(() => {
                 const totalPaid = results.reduce((acc, r) => acc + (r.paid || 0), 0);
                 const totalExpected = results.reduce((acc, r) => acc + (r.expected || 0), 0);
@@ -1262,26 +1117,30 @@
                 return { totalPaid, totalExpected, confirmedCount, lateMissingCount, oddCount, unmatchedCount, rate };
             }, [results]);
 
-            // Filtered & Searched Results
             const filteredResults = useMemo(() => {
-                return results.filter(r => {
+                const baseFiltered = results.filter(r => {
                     const matchesFilter = activeFilter === 'all' || r.statusType === activeFilter;
                     const matchesGrade = gradeFilter === 'all' || parseGradeNumber(r.grade).toString() === gradeFilter;
                     const q = searchQuery.toLowerCase();
-                    const matchesSearch = !q || 
-                        r.folder.toLowerCase().includes(q) || 
-                        r.id.toString().includes(q) || 
-                        (r.forensicNote && r.forensicNote.toLowerCase().includes(q));
+                    const matchesSearch = !q || r.folder.toLowerCase().includes(q) || r.id.toString().includes(q) || (r.forensicNote && r.forensicNote.toLowerCase().includes(q));
                     return matchesFilter && matchesGrade && matchesSearch;
+                });
+
+                return baseFiltered.sort((a, b) => {
+                    if (a.familyClusterKey !== b.familyClusterKey) {
+                        return a.familyClusterKey.localeCompare(b.familyClusterKey, undefined, { numeric: true });
+                    }
+                    return a.id.toString().localeCompare(b.id.toString(), undefined, { numeric: true });
                 });
             }, [results, activeFilter, gradeFilter, searchQuery]);
 
             const currentSlip = useMemo(() => intervention ? processedData.receipts.find(r => r.id === intervention.id) : null, [intervention, processedData.receipts]);
+            const auditedCount = useMemo(() => results.filter(r => r.isAudited).length, [results]);
 
             return (
                 <div className="min-h-screen p-4 md:p-8 flex flex-col gap-6 max-w-[1600px] mx-auto relative">
                     
-                    {/* Toast Notification Container */}
+                    {/* Toast Notification */}
                     {toast && (
                         <div className={`fixed bottom-6 right-6 z-[300] px-5 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-bounce ${
                             toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' :
@@ -1297,7 +1156,7 @@
                         </div>
                     )}
 
-                    {/* Custom Confirmation Dialog Modal */}
+                    {/* Confirmation Modal */}
                     {confirmDialog && (
                         <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4">
@@ -1341,13 +1200,8 @@
                             <button onClick={exportLateFeeReport} className="bg-rose-900/40 hover:bg-rose-900/80 text-rose-200 px-4 py-2.5 rounded-xl font-bold text-xs uppercase border border-rose-800/60 flex items-center gap-2">
                                 <i className="fas fa-exclamation-circle text-rose-400"></i> Defaulters ({stats.lateMissingCount})
                             </button>
-                            <button 
-                                onClick={exportReport} 
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/50 shadow-lg shadow-emerald-600/20 px-4 py-2.5 rounded-xl font-bold text-xs uppercase border flex items-center gap-2 transition-all cursor-pointer"
-                                title="Export Active Multi-Tab Excel Report"
-                            >
-                                <i className="fas fa-file-excel"></i> 
-                                Export All Tabs
+                            <button onClick={exportReport} className="bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/50 shadow-lg shadow-emerald-600/20 px-4 py-2.5 rounded-xl font-bold text-xs uppercase border flex items-center gap-2 transition-all cursor-pointer">
+                                <i className="fas fa-file-excel"></i> Export All Tabs
                             </button>
                             <button onClick={runSmartAudit} disabled={isAuditing} className="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition-all">
                                 <i className={`fas ${isAuditing ? 'fa-spinner fa-spin' : 'fa-play'}`}></i>
@@ -1356,7 +1210,7 @@
                         </div>
                     </header>
 
-                    {/* Metrics Top Section with Integrated Vision OCR Status Card */}
+                    {/* Metric Cards Grid + Vertical Vision OCR Status Card */}
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                         <div className="glass-panel p-4 rounded-2xl">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reconciled Collections</span>
@@ -1390,32 +1244,28 @@
                             <div className="text-xl font-extrabold font-mono text-slate-400 mt-1">{stats.unmatchedCount}</div>
                             <span className="text-[10px] text-slate-500">No bank record link</span>
                         </div>
-                        {/* Vertical Vision OCR Status Card */}
-                        <div className="glass-panel p-4 rounded-2xl flex flex-col justify-between border-indigo-500/30">
+
+                        {/* Integrated Vertical Vision OCR Status Card */}
+                        <div className="glass-panel p-4 rounded-2xl border border-indigo-500/30 flex flex-col justify-between col-span-2 lg:col-span-1">
                             <div className="flex justify-between items-center mb-1">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                                    <i className="fas fa-eye text-indigo-400"></i> Vision OCR Status
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                                    <i className="fas fa-eye"></i> Vision OCR
                                 </span>
-                                <div className="flex gap-1">
-                                    <button onClick={initEngine} className="text-slate-400 hover:text-white text-[10px] p-1 rounded bg-slate-800 hover:bg-indigo-600 transition-all" title="Restart Multithread Pool"><i className="fas fa-redo"></i></button>
-                                    <button onClick={resetSystem} className="text-slate-400 hover:text-white text-[10px] p-1 rounded bg-slate-800 hover:bg-rose-600 transition-all" title="Reset System"><i className="fas fa-trash-alt"></i></button>
-                                </div>
+                                <button onClick={initEngine} className="text-slate-400 hover:text-white text-[10px]" title="Restart Workers">
+                                    <i className="fas fa-redo"></i>
+                                </button>
                             </div>
-                            <div className="space-y-1 mt-1">
-                                <div className="flex justify-between items-center text-xs font-mono">
-                                    <span className="text-emerald-400 font-bold">{poolSizeRef.current} Worker Threads</span>
-                                    <span className={ocrProgress.isRunning ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>{ocrProgress.isRunning ? "ACTIVE" : "IDLE"}</span>
+                            <div className="space-y-1 my-1">
+                                <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                                    <span>Workers:</span>
+                                    <span className="text-emerald-400 font-bold">{poolSizeRef.current} Active</span>
                                 </div>
                                 <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                     <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${(ocrProgress.processed / Math.max(1, ocrProgress.total)) * 100}%` }}></div>
                                 </div>
-                                <div className="flex justify-between items-center text-[10px] pt-0.5">
-                                    <span className="text-slate-500 font-mono truncate max-w-[110px]" title={ocrProgress.text}>{ocrProgress.processed}/{ocrProgress.total} - {ocrProgress.text}</span>
-                                    <div className="flex gap-1">
-                                        <button onClick={stopOcr} className="px-1.5 py-0.5 bg-slate-800 text-slate-300 text-[9px] rounded hover:bg-rose-600 hover:text-white"><i className="fas fa-pause"></i></button>
-                                        <button onClick={skipCurrentOcr} className="px-1.5 py-0.5 bg-slate-800 text-slate-300 text-[9px] rounded hover:bg-amber-600 hover:text-white"><i className="fas fa-forward"></i></button>
-                                    </div>
-                                </div>
+                            </div>
+                            <div className="text-[9px] font-mono text-slate-500 truncate" title={ocrProgress.text}>
+                                {ocrProgress.isRunning ? ocrProgress.text : "On-Demand Cards"}
                             </div>
                         </div>
                     </div>
@@ -1423,8 +1273,8 @@
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                         {/* Sidebar Configuration & Asset Management */}
                         <aside className="lg:col-span-4 space-y-6">
-
-                            {/* Data Assets Upload (Positioned at top of Sidebar) */}
+                            
+                            {/* Data Assets Upload - Positioned at top of Sidebar */}
                             <div className="glass-panel p-6 rounded-3xl">
                                 <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                                     <i className="fas fa-database text-indigo-400"></i> Data Assets
@@ -1467,76 +1317,89 @@
                                 </div>
                             </div>
 
-                            {/* Detailed Fee Configuration (Positioned immediately below Data Assets) */}
-                            <div className="glass-panel p-6 rounded-3xl">
-                                <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
+                            {/* Rules & Fees Setup - Moved directly under Data Assets */}
+                            <div className="glass-panel p-6 rounded-3xl space-y-4">
+                                <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
                                     <i className="fas fa-sliders-h text-indigo-400"></i> Rules & Fees Setup
                                 </h3>
-                                <div className="space-y-4">
-                                    <div className="bg-slate-900/90 p-3.5 rounded-2xl border border-rose-500/20 space-y-3">
-                                        <h4 className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <i className="fas fa-clock"></i> Late Fee Policy
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="text-[9px] font-bold text-slate-400 uppercase">Cutoff Penalty Date (DD/MM/YYYY)</label>
-                                                <div className="flex items-center gap-1.5 mt-1">
+
+                                <div className="bg-slate-900/90 p-3.5 rounded-2xl border border-rose-500/20 space-y-3">
+                                    <h4 className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <i className="fas fa-clock"></i> Late Fee Policy
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Cutoff Penalty Date</label>
+                                            <div className="flex items-center gap-1">
+                                                <input 
+                                                    type="text" 
+                                                    value={config.lateLogicStart} 
+                                                    onChange={e => setConfig({ ...config, lateLogicStart: e.target.value })} 
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono" 
+                                                    placeholder="DD/MM/YYYY" 
+                                                />
+                                                <div className="relative shrink-0">
                                                     <input 
-                                                        type="text" 
-                                                        value={config.lateLogicStart} 
-                                                        onChange={e => setConfig({ ...config, lateLogicStart: e.target.value })} 
-                                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono" 
-                                                        placeholder="DD/MM/YYYY" 
+                                                        type="date" 
+                                                        value={formatDDMMYYYYtoYYYYMMDD(config.lateLogicStart)} 
+                                                        onChange={e => {
+                                                            const formatted = formatYYYYMMDDtoDDMMYYYY(e.target.value);
+                                                            if (formatted) setConfig({ ...config, lateLogicStart: formatted });
+                                                        }} 
+                                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" 
                                                     />
-                                                    <div className="relative shrink-0">
-                                                        <input 
-                                                            type="date" 
-                                                            value={formatDDMMYYYYtoYYYYMMDD(config.lateLogicStart)} 
-                                                            onChange={e => {
-                                                                const newFormatted = formatYYYYMMDDtoDDMMYYYY(e.target.value);
-                                                                if (newFormatted) setConfig(prev => ({ ...prev, lateLogicStart: newFormatted }));
-                                                            }}
-                                                            className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10" 
-                                                        />
-                                                        <button type="button" className="bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 text-xs flex items-center justify-center transition-colors">
-                                                            <i className="fas fa-calendar-alt"></i>
-                                                        </button>
-                                                    </div>
+                                                    <button type="button" className="w-8 h-8 rounded-lg bg-slate-800 text-indigo-400 hover:text-white flex items-center justify-center border border-slate-700" title="Open Calendar Picker">
+                                                        <i className="fas fa-calendar-alt text-xs"></i>
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div>
-                                                <label className="text-[9px] font-bold text-rose-400 uppercase">Penalty Fee (LKR)</label>
-                                                <input type="number" value={config.lateFee} onChange={e => setConfig({ ...config, lateFee: Number(e.target.value) })} className="w-full bg-slate-950 border border-rose-500/30 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono mt-1" />
-                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-rose-400 uppercase block mb-1">Penalty Fee (LKR)</label>
+                                            <input type="number" value={config.lateFee} onChange={e => setConfig({ ...config, lateFee: Number(e.target.value) })} className="w-full bg-slate-950 border border-rose-500/30 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono" />
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div>
-                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Grade Fee Matrix (LKR)</h4>
-                                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(g => (
-                                                <div key={g} className="bg-slate-900/80 p-2 rounded-xl border border-slate-800 flex items-center justify-between">
-                                                    <span className="text-xs font-bold text-slate-300">Grade {g}</span>
-                                                    <input
-                                                        type="number"
-                                                        value={config.gradeFees[g] || 0}
-                                                        onChange={e => {
-                                                            const val = Number(e.target.value);
-                                                            setConfig(prev => ({
-                                                                ...prev,
-                                                                gradeFees: { ...prev.gradeFees, [g]: val }
-                                                            }));
-                                                        }}
-                                                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-right text-indigo-400 font-mono"
-                                                    />
-                                                </div>
-                                            ))}
+                                <div className="bg-slate-900/90 p-3.5 rounded-2xl border border-indigo-500/20 space-y-3">
+                                    <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <i className="fas fa-university"></i> Bank Account Verification
+                                    </h4>
+                                    <div className="space-y-2">
+                                        <div>
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Account Owner Name</label>
+                                            <input type="text" value={config.depositAccountOwner} onChange={e => setConfig({ ...config, depositAccountOwner: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono mt-1" />
                                         </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Deposit Account Number</label>
+                                            <input type="text" value={config.depositAccountNumber} onChange={e => setConfig({ ...config, depositAccountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono mt-1" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Grade Fee Matrix (LKR)</h4>
+                                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(g => (
+                                            <div key={g} className="bg-slate-900/80 p-2 rounded-xl border border-slate-800 flex items-center justify-between">
+                                                <span className="text-xs font-bold text-slate-300">Grade {g}</span>
+                                                <input
+                                                    type="number"
+                                                    value={config.gradeFees[g] !== undefined ? config.gradeFees[g] : (g === 1 ? 3500 : 3000)}
+                                                    onChange={e => {
+                                                        const val = Number(e.target.value);
+                                                        setConfig(prev => ({ ...prev, gradeFees: { ...prev.gradeFees, [g]: val } }));
+                                                    }}
+                                                    className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-right text-indigo-400 font-mono"
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
                         </aside>
 
+                        {/* Main Audit Area */}
                         <main className="lg:col-span-8 flex flex-col gap-4">
                             {/* Filter and Search Bar */}
                             <div className="glass-panel p-4 rounded-3xl space-y-3">
@@ -1598,74 +1461,139 @@
                                 )}
                             </div>
 
-                            {/* Results Table / Cards */}
+                            {/* Results Table / Cards (Grouped Sequentially by Family) */}
                             <div className="glass-panel rounded-3xl overflow-hidden min-h-[500px] flex flex-col">
                                 <div className="p-3 bg-slate-900/80 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <input type="checkbox" checked={selectedTokens.length > 0 && selectedTokens.length === filteredResults.length} onChange={toggleSelectAll} className="rounded bg-slate-950 border-slate-700 text-indigo-600" />
-                                        <span>Showing {filteredResults.length} Audit Entries ({auditedCount}/{results.length} Audited)</span>
+                                        <span>Showing {filteredResults.length} Audit Entries ({auditedCount}/{results.length} Audited) • Family Grouped</span>
                                     </div>
                                     <span>Click record to inspect slip & add manual comment</span>
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto p-3 space-y-2.5 max-h-[700px]">
-                                    {filteredResults.map(res => (
-                                        <div
-                                            key={res.id}
-                                            className={`border rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all hover-card ${
-                                                res.statusType === 'scanning' ? 'bg-indigo-950/20 border-indigo-500/40 animate-pulse-subtle' :
-                                                (res.statusType === 'late_fee_missing' ? 'bg-rose-950/20 border-rose-500/30' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/60')
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-3.5 flex-1 min-w-0 pr-4" onClick={() => openReview(res)}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedTokens.includes(res.id)}
-                                                    onChange={(e) => { e.stopPropagation(); toggleSelectToken(res.id); }}
-                                                    className="rounded bg-slate-950 border-slate-700 text-indigo-600"
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">#{res.id}</span>
-                                                        <span className="text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-900/50">{res.grade || 'Grade N/A'}</span>
-                                                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
-                                                            res.statusType === 'confirmed' ? 'text-emerald-400 bg-emerald-950/50' :
-                                                            (res.statusType === 'late_fee_missing' ? 'text-rose-400 bg-rose-950/60 animate-pulse' :
-                                                            (res.statusType === 'scanning' ? 'text-indigo-400 bg-indigo-950/60' : 'text-amber-400 bg-amber-950/50'))
-                                                        }`}>
-                                                            {res.statusType.replace(/_/g, ' ')}
-                                                        </span>
-                                                        {res.isFuturePayment && (
-                                                            <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
-                                                                Future Payment
-                                                            </span>
-                                                        )}
-                                                        {res.isAudited ? (
-                                                            <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                                                                <i className="fas fa-check-circle"></i> Audited
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
-                                                                Pending Review
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <h4 className="text-white font-bold text-sm truncate">{res.folder}</h4>
-                                                    <p className="text-xs text-slate-400 mt-0.5 truncate">{res.forensicNote}</p>
-                                                </div>
-                                            </div>
+                                    {filteredResults.map((res, index) => {
+                                        const prevRes = filteredResults[index - 1];
 
-                                            <div className="text-right shrink-0" onClick={() => openReview(res)}>
-                                                <div className="text-lg font-extrabold text-white font-mono">Rs. {res.paid.toLocaleString()}</div>
-                                                <div className="text-[10px] text-slate-400 font-mono">REQ: Rs. {res.expected.toLocaleString()}</div>
-                                                {res.isLateSubmission && (
-                                                    <div className="text-[9px] font-bold text-rose-400 uppercase mt-0.5">
-                                                        <i className="fas fa-clock mr-1"></i> Late Upload
+                                        return (
+                                            <div key={res.id} className="space-y-1">
+                                                {/* Visual Cluster Separator for Family Groups */}
+                                                {res.isFamilyPayment && (!prevRes || prevRes.familyClusterKey !== res.familyClusterKey) && (
+                                                    <div className="flex items-center gap-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">
+                                                        <i className="fas fa-users-rectangle text-purple-400"></i>
+                                                        <span>Family Cluster: {res.familyMembers?.map(m => m.name).join(' & ')}</span>
                                                     </div>
                                                 )}
+
+                                                <div
+                                                    className={`border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between cursor-pointer transition-all hover-card gap-3 ${
+                                                        res.statusType === 'scanning' ? 'bg-indigo-950/20 border-indigo-500/40 animate-pulse-subtle' :
+                                                        (res.statusType === 'late_fee_missing' ? 'bg-rose-950/20 border-rose-500/30' : 
+                                                        (res.isFamilyPayment ? 'bg-purple-950/20 border-purple-800/40' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/60'))
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start md:items-center gap-3.5 flex-1 min-w-0 pr-4" onClick={() => openReview(res)}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedTokens.includes(res.id)}
+                                                            onChange={(e) => { e.stopPropagation(); toggleSelectToken(res.id); }}
+                                                            className="mt-1 md:mt-0 rounded bg-slate-950 border-slate-700 text-indigo-600"
+                                                        />
+                                                        <div className="flex-1 min-w-0 space-y-1">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">#{res.id}</span>
+                                                                <span className="text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-900/50">{res.grade || 'Grade N/A'}</span>
+                                                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                                                                    res.statusType === 'confirmed' ? 'text-emerald-400 bg-emerald-950/50' :
+                                                                    (res.statusType === 'late_fee_missing' ? 'text-rose-400 bg-rose-950/60 animate-pulse' :
+                                                                    (res.statusType === 'scanning' ? 'text-indigo-400 bg-indigo-950/60' : 'text-amber-400 bg-amber-950/50'))
+                                                                }`}>
+                                                                    {res.statusType.replace(/_/g, ' ')}
+                                                                </span>
+                                                                {res.isFamilyPayment && (
+                                                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800/60 flex items-center gap-1">
+                                                                        <i className="fas fa-users"></i> Family ({res.familyMembers?.length || 2})
+                                                                    </span>
+                                                                )}
+                                                                {res.isFuturePayment && (
+                                                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                                                                        Future Payment
+                                                                    </span>
+                                                                )}
+                                                                <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${res.accountNameVerified ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                                                                    {res.accountNameVerified ? '✓ Name' : '✗ Name'}
+                                                                </span>
+                                                                <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${res.accountNumVerified ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                                                                    {res.accountNumVerified ? '✓ Acc#' : '✗ Acc#'}
+                                                                </span>
+                                                                {res.ocrTrace && (
+                                                                    <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300">
+                                                                        TRACE #{res.ocrTrace}
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); scanSingleCardOcr(res.id); }}
+                                                                    disabled={scanningCardId === res.id}
+                                                                    className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-950 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-700/50 transition-all flex items-center gap-1"
+                                                                    title="Run Vision OCR Scan on Slip Image"
+                                                                >
+                                                                    <i className={`fas ${scanningCardId === res.id ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i>
+                                                                    {scanningCardId === res.id ? 'Scanning...' : 'OCR Scan'}
+                                                                </button>
+                                                                {res.isAudited ? (
+                                                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                                                        <i className="fas fa-check-circle"></i> Audited
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
+                                                                        Pending Review
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <h4 className="text-white font-bold text-sm truncate flex items-center gap-2">
+                                                                <span>{res.folder}</span>
+                                                                {res.isFamilyPayment && res.familyMembers && (
+                                                                    <span className="text-xs font-normal text-purple-300/80 truncate">
+                                                                        (Family Cluster: {res.familyMembers.map(m => m.name).join(' & ')})
+                                                                    </span>
+                                                                )}
+                                                            </h4>
+                                                            {res.forensicNote && (
+                                                                <p className="text-xs text-slate-400 mt-0.5 truncate">{res.forensicNote}</p>
+                                                            )}
+
+                                                            {/* Deduplicated Line-by-Line Family Member Breakdown Note */}
+                                                            {res.familyMembers && res.familyMembers.length > 1 && (
+                                                                <div className="mt-2 p-2 bg-purple-950/40 border border-purple-800/40 rounded-xl text-[11px] font-mono space-y-1">
+                                                                    <div className="text-[9px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1">
+                                                                        <i className="fas fa-users text-[10px] text-purple-400"></i> Family Linked Members:
+                                                                    </div>
+                                                                    <div className="space-y-0.5">
+                                                                        {res.familyMembers.map((fm) => (
+                                                                            <div key={fm.token} className={`flex items-center justify-between px-2 py-0.5 rounded ${fm.token === res.id ? 'bg-purple-900/60 text-white font-bold border border-purple-700/50' : 'text-slate-300 bg-slate-950/40'}`}>
+                                                                                <span>#{fm.token} — {fm.name} ({fm.grade})</span>
+                                                                                <span className="text-purple-300 font-bold">Rs. {fm.baseFee}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-right shrink-0" onClick={() => openReview(res)}>
+                                                        <div className="text-lg font-extrabold text-white font-mono">Rs. {res.paid.toLocaleString()}</div>
+                                                        <div className="text-[10px] text-slate-400 font-mono">REQ: Rs. {res.expected.toLocaleString()}</div>
+                                                        {res.isLateSubmission && (
+                                                            <div className="text-[9px] font-bold text-rose-400 uppercase mt-0.5">
+                                                                <i className="fas fa-clock mr-1"></i> Late Upload
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
 
                                     {filteredResults.length === 0 && (
                                         <div className="h-64 flex flex-col items-center justify-center text-slate-600 text-center">
@@ -1679,258 +1607,150 @@
                         </main>
                     </div>
 
-                    {/* --- SECONDARY AUDIT WORKFLOW SECTION --- */}
-                    <section className="glass-panel p-6 md:p-8 rounded-3xl mt-4 border border-indigo-500/20 space-y-6 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 via-indigo-500 to-emerald-500"></div>
-
-                        {/* Section Header */}
-                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-5">
+                    {/* Secondary Audit Workflow Section */}
+                    <div className="glass-panel p-6 rounded-3xl space-y-6 mt-4 border border-indigo-500/20">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-4">
                             <div>
-                                <div className="flex items-center gap-2 text-amber-400 font-mono text-xs tracking-widest uppercase mb-1">
-                                    <i className="fas fa-shield-alt text-amber-400"></i> Secondary Audit Workflow & Parent Verification
-                                </div>
-                                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-                                    Parent Forensic Finding Report & Card Generator
-                                </h2>
-                                <p className="text-slate-400 font-mono text-xs mt-1">{secondaryStatus}</p>
+                                <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-widest flex items-center gap-2">
+                                    <i className="fas fa-certificate"></i> Secondary Audit Workflow
+                                </span>
+                                <h2 className="text-2xl font-extrabold text-white mt-1">Parent Advisory & Verification Card Engine</h2>
+                                <p className="text-slate-400 text-xs font-mono mt-0.5">{secondaryStatus}</p>
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                                <label className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase border border-amber-500/50 flex items-center gap-2 shadow-lg shadow-amber-600/20 cursor-pointer transition-all">
-                                    <i className="fas fa-file-import"></i> Upload Audited Findings (.xlsx / .csv)
+                            <div className="flex gap-3">
+                                <label className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase cursor-pointer flex items-center gap-2 shadow-lg shadow-indigo-500/20">
+                                    <i className="fas fa-file-import"></i> Upload Findings Excel / Slips
                                     <input type="file" multiple accept=".xlsx,.xls,.csv,.jpg,.jpeg,.png,.pdf" onChange={handleSecondaryFiles} className="hidden" />
-                                </label>
-                                <label className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2.5 rounded-xl font-bold text-xs uppercase border border-slate-700 flex items-center gap-2 cursor-pointer transition-all">
-                                    <i className="fas fa-folder-open"></i> Upload Slips Folder / Files
-                                    <input type="file" multiple webkitdirectory="" directory="" onChange={handleSecondaryFiles} className="hidden" />
                                 </label>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                            {/* Left Querying & Findings Table (5 Cols) */}
-                            <div className="lg:col-span-5 flex flex-col gap-4">
-                                <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-800 space-y-3">
-                                    <div className="relative">
-                                        <i className="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                        {secondaryReportData.length > 0 ? (
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                <div className="lg:col-span-5 space-y-4">
+                                    <div className="flex gap-2">
                                         <input
                                             type="text"
                                             value={secondarySearchQuery}
                                             onChange={e => setSecondarySearchQuery(e.target.value)}
-                                            placeholder="Query Student Name, Token ID or Finding..."
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 transition-colors"
+                                            placeholder="Search by student name or token..."
+                                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
                                         />
+                                        <select
+                                            value={secondaryCategoryFilter}
+                                            onChange={e => setSecondaryCategoryFilter(e.target.value)}
+                                            className="bg-slate-900 border border-slate-800 text-slate-300 rounded-xl px-3 py-2 text-xs outline-none"
+                                        >
+                                            {secondaryCategories.map(cat => (
+                                                <option key={cat} value={cat}>{cat === 'all' ? 'All Findings' : cat}</option>
+                                            ))}
+                                        </select>
                                     </div>
 
-                                    {/* Category Pills */}
-                                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                                        {secondaryCategories.map(cat => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setSecondaryCategoryFilter(cat)}
-                                                className={`py-1 px-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-                                                    secondaryCategoryFilter === cat ? 'bg-amber-600 text-white' : 'bg-slate-950 text-slate-400 hover:bg-slate-800'
+                                    <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
+                                        {filteredSecondaryReport.map((item) => (
+                                            <div
+                                                key={item.id}
+                                                onClick={() => setSelectedSecondaryStudent(item)}
+                                                className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                                                    selectedSecondaryStudent?.id === item.id 
+                                                        ? 'bg-indigo-950/60 border-indigo-500 text-white' 
+                                                        : 'bg-slate-900/40 border-slate-800 text-slate-300 hover:bg-slate-800/50'
                                                 }`}
                                             >
-                                                {cat} ({cat === 'all' ? secondaryReportData.length : secondaryReportData.filter(r => r.sheetCategory === cat).length})
-                                            </button>
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="text-[10px] font-mono bg-slate-950 px-2 py-0.5 rounded text-indigo-400 font-bold border border-slate-800">#{item.token}</span>
+                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-900/50">{item.sheetCategory}</span>
+                                                </div>
+                                                <h4 className="font-bold text-sm text-white">{item.name}</h4>
+                                                <p className="text-xs text-slate-400 truncate mt-1 italic">{item.comment}</p>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
 
-                                {/* Results List */}
-                                <div className="bg-slate-900/60 rounded-2xl border border-slate-800 max-h-[520px] overflow-y-auto p-2.5 space-y-2">
-                                    {filteredSecondaryReport.map(item => (
-                                        <div
-                                            key={item.id}
-                                            onClick={() => setSelectedSecondaryStudent(item)}
-                                            className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                                                selectedSecondaryStudent?.id === item.id 
-                                                    ? 'bg-amber-500/10 border-amber-500/50 shadow-md' 
-                                                    : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/50'
-                                            }`}
-                                        >
-                                            <div className="min-w-0 flex-1 pr-3">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-[10px] font-mono text-amber-400 bg-amber-950/60 border border-amber-900/40 px-2 py-0.5 rounded">#{item.token}</span>
-                                                    <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{item.grade}</span>
-                                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/50">{item.sheetCategory}</span>
+                                <div className="lg:col-span-7 flex flex-col items-center">
+                                    {selectedSecondaryStudent ? (
+                                        <div className="w-full space-y-4">
+                                            <div ref={parentCardRef} className="bg-slate-950 p-6 rounded-3xl border border-indigo-500/30 shadow-2xl relative overflow-hidden space-y-5">
+                                                <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-indigo-500 to-amber-500"></div>
+                                                
+                                                <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+                                                    <div>
+                                                        <div className="text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-widest">Official Audit Notice</div>
+                                                        <h3 className="text-xl font-extrabold text-white">{selectedSecondaryStudent.name}</h3>
+                                                        <p className="text-xs text-slate-400 font-mono">Token ID: #{selectedSecondaryStudent.token} • {selectedSecondaryStudent.grade}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-full text-[10px] font-bold uppercase">
+                                                            {selectedSecondaryStudent.sheetCategory || 'Pending Action'}
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <h4 className="text-white font-bold text-xs truncate">{item.name}</h4>
-                                                <p className="text-[11px] text-slate-400 truncate mt-0.5">{item.comment}</p>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <div className="text-sm font-extrabold font-mono text-emerald-400">Rs. {item.paid.toLocaleString()}</div>
-                                                <div className="text-[9px] text-slate-500 font-mono">REQ: Rs. {item.totalExpected.toLocaleString()}</div>
-                                            </div>
-                                        </div>
-                                    ))}
 
-                                    {filteredSecondaryReport.length === 0 && (
-                                        <div className="h-48 flex flex-col items-center justify-center text-slate-600 text-center p-4">
-                                            <i className="fas fa-file-excel text-3xl mb-2 opacity-30"></i>
-                                            <p className="text-xs font-bold uppercase text-slate-400">No Secondary Findings Loaded</p>
-                                            <p className="text-[10px] text-slate-500 mt-1">Upload an exported Excel audit report or CSV findings file above.</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-800 space-y-3">
+                                                        <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fee Breakdown</h5>
+                                                        <div className="space-y-1.5 text-xs font-mono">
+                                                            <div className="flex justify-between text-slate-300"><span>Paid:</span><span className="text-emerald-400 font-bold">Rs. {selectedSecondaryStudent.paid}</span></div>
+                                                            <div className="flex justify-between text-slate-300"><span>Base Fee:</span><span>Rs. {selectedSecondaryStudent.baseFee}</span></div>
+                                                            <div className="flex justify-between text-slate-300"><span>Late Penalty:</span><span className="text-rose-400">Rs. {selectedSecondaryStudent.lateFee}</span></div>
+                                                            <div className="flex justify-between text-white font-bold border-t border-slate-800 pt-1.5"><span>Total Due:</span><span>Rs. {selectedSecondaryStudent.totalExpected}</span></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                                                        <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Auditor Forensic Remark</h5>
+                                                        <p className="text-xs font-mono text-amber-300 italic leading-relaxed bg-slate-950 p-2.5 rounded-xl border border-slate-800">{selectedSecondaryStudent.comment}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 min-h-[220px] flex items-center justify-center relative overflow-hidden">
+                                                    {selectedSecondarySlip ? (
+                                                        <img src={selectedSecondarySlip.url} className="max-h-[260px] object-contain rounded-xl shadow-lg" />
+                                                    ) : (
+                                                        <div className="text-center p-4">
+                                                            <i className="fas fa-image text-3xl text-slate-700 mb-2"></i>
+                                                            <p className="text-xs text-slate-500 font-mono">Payment Slip Image Attached</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-2 border-t border-slate-800">
+                                                    <span>AuditCore Pro Enterprise Seal</span>
+                                                    <span>Verified on {new Date().toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+
+                                            <button onClick={downloadParentCard} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all">
+                                                <i className="fas fa-download"></i> Save Parent Advisory Card as Image (PNG)
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="h-64 flex flex-col items-center justify-center text-slate-600">
+                                            <i className="fas fa-id-card text-4xl mb-2 opacity-30"></i>
+                                            <p className="text-xs uppercase font-bold text-slate-500">Select a finding record to preview advisory notice</p>
                                         </div>
                                     )}
                                 </div>
                             </div>
-
-                            {/* Right Parent Audit Card Preview & Certificate Snapshot (7 Cols) */}
-                            <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
-                                {selectedSecondaryStudent ? (
-                                    <>
-                                        {/* Authentic Parent Audit Card Target for html2canvas */}
-                                        <div ref={parentCardRef} className="bg-slate-950 border-2 border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 relative overflow-hidden">
-                                            {/* Watermark Stamp Graphic */}
-                                            <div className="absolute -right-6 -bottom-6 opacity-10 pointer-events-none select-none">
-                                                <i className="fas fa-award text-9xl text-amber-400"></i>
-                                            </div>
-
-                                            {/* Official Letterhead Header */}
-                                            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-md">
-                                                            AC
-                                                        </div>
-                                                        <div>
-                                                            <h3 className="text-base font-extrabold text-white tracking-wider uppercase">AuditCore Forensic Advisory</h3>
-                                                            <p className="text-[9px] font-mono text-amber-400 uppercase tracking-widest">Official Reconciliation & Audit Notice</p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="inline-block bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-mono px-3 py-1 rounded-full uppercase font-bold">
-                                                        VERIFIED ADVISORY CARD
-                                                    </span>
-                                                    <p className="text-[10px] text-slate-500 font-mono mt-1">Date: {getTodayDDMMYYYY()}</p>
-                                                </div>
-                                            </div>
-
-                                            {/* Student Metadata Card */}
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-                                                <div>
-                                                    <span className="text-[9px] font-bold text-slate-500 uppercase">Token ID</span>
-                                                    <p className="text-xs font-bold font-mono text-amber-400">#{selectedSecondaryStudent.token}</p>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[9px] font-bold text-slate-500 uppercase">Student Name</span>
-                                                    <p className="text-xs font-bold text-white truncate">{selectedSecondaryStudent.name}</p>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[9px] font-bold text-slate-500 uppercase">Grade</span>
-                                                    <p className="text-xs font-bold text-indigo-300">{selectedSecondaryStudent.grade}</p>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[9px] font-bold text-slate-500 uppercase">Audit Status</span>
-                                                    <p className="text-xs font-bold font-mono text-emerald-400">{selectedSecondaryStudent.status}</p>
-                                                </div>
-                                            </div>
-
-                                            {/* Financial Ledger Breakdown */}
-                                            <div className="bg-slate-900/60 rounded-2xl border border-slate-800 overflow-hidden">
-                                                <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                                                    Reconciliation Summary
-                                                </div>
-                                                <div className="p-4 grid grid-cols-3 gap-3 text-center">
-                                                    <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                                                        <span className="text-[9px] font-bold text-slate-500 uppercase">Base Tuition</span>
-                                                        <div className="text-xs font-bold text-slate-200 font-mono mt-0.5">Rs. {selectedSecondaryStudent.baseFee.toLocaleString()}</div>
-                                                    </div>
-                                                    <div className="bg-slate-950 p-2.5 rounded-xl border border-rose-950">
-                                                        <span className="text-[9px] font-bold text-rose-400 uppercase">Penalty Fee</span>
-                                                        <div className="text-xs font-bold text-rose-400 font-mono mt-0.5">Rs. {selectedSecondaryStudent.lateFee.toLocaleString()}</div>
-                                                    </div>
-                                                    <div className="bg-slate-950 p-2.5 rounded-xl border border-emerald-950">
-                                                        <span className="text-[9px] font-bold text-emerald-400 uppercase">Verified Paid</span>
-                                                        <div className="text-xs font-bold text-emerald-400 font-mono mt-0.5">Rs. {selectedSecondaryStudent.paid.toLocaleString()}</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Forensic Comment Verdict Box */}
-                                            <div className="bg-amber-950/20 border border-amber-500/30 p-4 rounded-2xl space-y-1">
-                                                <h4 className="text-[10px] font-bold uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-                                                    <i className="fas fa-exclamation-circle"></i> Auditor Findings & Observations
-                                                </h4>
-                                                <p className="text-xs text-amber-100 font-mono leading-relaxed">
-                                                    {selectedSecondaryStudent.comment}
-                                                </p>
-                                                {selectedSecondaryStudent.bankDesc && selectedSecondaryStudent.bankDesc !== 'N/A' && (
-                                                    <p className="text-[10px] text-slate-400 font-mono pt-1">
-                                                        Bank Record: {selectedSecondaryStudent.bankDesc}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            {/* Slip Visual Attachment Preview inside Card */}
-                                            <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 flex flex-col items-center">
-                                                <div className="w-full flex justify-between items-center text-[9px] font-bold text-slate-400 uppercase mb-2">
-                                                    <span>Uploaded Receipt Image Proof</span>
-                                                    <span>{selectedSecondarySlip ? selectedSecondarySlip.name : 'No local image attached'}</span>
-                                                </div>
-                                                <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center relative">
-                                                    {selectedSecondarySlip ? (
-                                                        selectedSecondarySlip.type?.includes('pdf') ? (
-                                                            <div className="text-center p-4">
-                                                                <i className="fas fa-file-pdf text-4xl text-rose-500 mb-2"></i>
-                                                                <p className="text-xs text-slate-300 font-mono">PDF Receipt Document Attached</p>
-                                                            </div>
-                                                        ) : (
-                                                            <img src={selectedSecondarySlip.url} className="w-full h-full object-contain" />
-                                                        )
-                                                    ) : (
-                                                        <div className="text-center p-4 text-slate-600">
-                                                            <i className="fas fa-image text-3xl mb-1"></i>
-                                                            <p className="text-[10px] text-slate-500">Slip image not found in current folder bundle</p>
-                                                            {selectedSecondaryStudent.link && (
-                                                                <a href={selectedSecondaryStudent.link} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-400 underline mt-1 block">View Online Slip Link</a>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Card Footer Stamp */}
-                                            <div className="flex justify-between items-center text-[9px] text-slate-500 font-mono border-t border-slate-800 pt-3">
-                                                <span>AuditCore Smart Vision v23.0 - Parent Copy</span>
-                                                <span className="text-amber-400 font-bold">AUTHENTIC AUDIT RECORD</span>
-                                            </div>
-                                        </div>
-
-                                        {/* Download Action Button */}
-                                        <div className="flex justify-end pt-2">
-                                            <button
-                                                onClick={downloadParentCard}
-                                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase px-6 py-3 rounded-2xl shadow-xl shadow-emerald-600/20 border border-emerald-400/50 flex items-center gap-2 transition-all cursor-pointer"
-                                            >
-                                                <i className="fas fa-camera text-sm"></i> Save Authentic Audit Card Image (PNG)
-                                            </button>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="bg-slate-950 border border-slate-800 rounded-3xl p-12 text-center h-full flex flex-col items-center justify-center text-slate-600">
-                                        <i className="fas fa-id-card text-5xl mb-3 text-slate-700"></i>
-                                        <h4 className="text-sm font-bold uppercase text-slate-400">Select a Student Finding</h4>
-                                        <p className="text-xs text-slate-500 mt-1 max-w-md">
-                                            Upload findings file, query any category or student on the left, and select a record to generate the authentic parent audit card.
-                                        </p>
-                                    </div>
-                                )}
+                        ) : (
+                            <div className="bg-slate-900/60 p-8 rounded-2xl border border-dashed border-slate-800 text-center">
+                                <i className="fas fa-file-excel text-4xl text-slate-700 mb-3"></i>
+                                <h4 className="text-sm font-bold text-slate-300 uppercase">No Secondary Report Loaded</h4>
+                                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">Upload the exported Audited Excel file and student slip images to generate authentic parent audit notices.</p>
                             </div>
-                        </div>
-                    </section>
+                        )}
+                    </div>
 
-                    {/* Inspection Modal */}
+                    {/* Inspection Modal with Image Adjusters, Verification Ticks, Manual Bank Lookup, Family Links */}
                     {intervention && (
                         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
                             
-                            {/* Full Capture Area Target: Encompasses both student details & slip preview */}
                             <div ref={captureAreaRef} className="bg-slate-900 w-full max-w-[1200px] h-[85vh] rounded-3xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col md:flex-row relative">
                                 
                                 {/* Left Side: Details & Bank Matches */}
-                                <div className="md:w-5/12 overflow-y-auto p-6 border-r border-slate-800 bg-slate-900/60 flex flex-col justify-between">
+                                <div className="md:w-5/12 overflow-y-auto p-6 border-r border-slate-800 bg-slate-900/60 flex flex-col justify-between space-y-4">
                                     <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800 shadow-xl space-y-4">
                                         <div className="flex justify-between items-start border-b border-slate-800 pb-3">
                                             <div>
@@ -1941,6 +1761,90 @@
                                             <div className="text-right">
                                                 <div className="text-xl font-extrabold text-emerald-400 font-mono">Rs. {intervention.paid}</div>
                                                 <div className="text-xs font-bold text-rose-400">Expected: Rs. {intervention.expected}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Family Cluster Navigation in Inspection Modal */}
+                                        {intervention.familyMembers && intervention.familyMembers.length > 1 && (
+                                            <div className="bg-purple-950/40 p-3 rounded-xl border border-purple-800/50 space-y-2">
+                                                <h5 className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
+                                                    <span>Family Linked Members ({intervention.familyMembers.length} Students)</span>
+                                                    <i className="fas fa-users-rectangle text-purple-400"></i>
+                                                </h5>
+                                                <div className="space-y-1.5 text-xs font-mono">
+                                                    {intervention.familyMembers.map((m, idx) => {
+                                                        const isCurrent = m.token === intervention.id;
+                                                        return (
+                                                            <div 
+                                                                key={idx} 
+                                                                onClick={() => {
+                                                                    const targetRes = results.find(r => r.id === m.token);
+                                                                    if (targetRes) openReview(targetRes);
+                                                                }}
+                                                                className={`flex justify-between items-center p-2 rounded border cursor-pointer transition-all ${
+                                                                    isCurrent ? 'bg-purple-900/80 border-purple-500 text-white font-bold' : 'bg-slate-950/80 border-purple-900/40 hover:bg-purple-950 text-slate-300'
+                                                                }`}
+                                                            >
+                                                                <div>
+                                                                    <span className="font-bold block">#{m.token} — {m.name} {isCurrent && '(Active Inspection)'}</span>
+                                                                    <span className="text-[10px] text-purple-300">{m.grade}</span>
+                                                                </div>
+                                                                <span className="text-emerald-400 font-bold">Rs. {m.baseFee}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-2">
+                                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Master Record Metadata</h5>
+                                            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                                                <div className="bg-slate-950 p-2 rounded border border-slate-800/80">
+                                                    <span className="text-[9px] text-slate-500 uppercase block">Selected Month (Col E)</span>
+                                                    <span className="text-amber-300 font-bold">{intervention.month || 'Not Specified'}</span>
+                                                </div>
+                                                <div className="bg-slate-950 p-2 rounded border border-slate-800/80">
+                                                    <span className="text-[9px] text-slate-500 uppercase block">Payment Info (Col F)</span>
+                                                    <span className="text-indigo-300 font-bold truncate block" title={intervention.paymentInfo}>{intervention.paymentInfo || 'None'}</span>
+                                                </div>
+                                            </div>
+                                            {intervention.notes && (
+                                                <div className="bg-slate-950 p-2 rounded border border-slate-800/80 text-xs font-mono">
+                                                    <span className="text-[9px] text-slate-500 uppercase block">Upload Notes (Col H)</span>
+                                                    <span className="text-slate-300 italic">{intervention.notes}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="bg-slate-900/90 p-3 rounded-xl border border-indigo-500/30 space-y-2">
+                                            <h5 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider flex items-center justify-between">
+                                                <span>Deposit Verification Checks</span>
+                                                <span className="text-[9px] text-rose-400 font-bold">* Visual Ticks Required</span>
+                                            </h5>
+                                            <div className="space-y-1.5 text-xs font-mono">
+                                                <label className={`flex items-center justify-between p-2 rounded border cursor-pointer transition-colors ${intervention.accountNameVerified ? 'bg-emerald-950/60 border-emerald-500/50' : 'bg-slate-950 border-rose-500/50'}`}>
+                                                    <span className="text-slate-300">
+                                                        Receiver Name: <strong className="text-white">{config.depositAccountOwner}</strong>
+                                                    </span>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={!!intervention.accountNameVerified} 
+                                                        onChange={e => setIntervention({ ...intervention, accountNameVerified: e.target.checked })} 
+                                                        className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0" 
+                                                    />
+                                                </label>
+                                                <label className={`flex items-center justify-between p-2 rounded border cursor-pointer transition-colors ${intervention.accountNumVerified ? 'bg-emerald-950/60 border-emerald-500/50' : 'bg-slate-950 border-rose-500/50'}`}>
+                                                    <span className="text-slate-300">
+                                                        Account No: <strong className="text-white">{config.depositAccountNumber}</strong>
+                                                    </span>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={!!intervention.accountNumVerified} 
+                                                        onChange={e => setIntervention({ ...intervention, accountNumVerified: e.target.checked })} 
+                                                        className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0" 
+                                                    />
+                                                </label>
                                             </div>
                                         </div>
 
@@ -1960,10 +1864,15 @@
                                             <p className="text-xs text-slate-300 leading-relaxed font-mono">{intervention.forensicNote}</p>
                                         </div>
 
-                                        <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 space-y-2">
-                                            <h5 className="text-[10px] font-bold text-slate-400 uppercase">Matched Bank Credits ({intervention.matches.length})</h5>
+                                        {/* Matched Bank Credits & Interactive Lookup */}
+                                        <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 space-y-3">
+                                            <h5 className="text-[10px] font-bold text-slate-400 uppercase flex items-center justify-between">
+                                                <span>Matched Bank Credits ({intervention.matches.length})</span>
+                                                <i className="fas fa-university text-indigo-400"></i>
+                                            </h5>
+                                            
                                             {intervention.matches.map((m, i) => (
-                                                <div key={i} className="text-xs border-b border-slate-800 pb-2 last:border-0">
+                                                <div key={i} className="text-xs border-b border-slate-800 pb-2 last:border-0 bg-slate-950 p-2 rounded-lg border">
                                                     <div className="font-bold text-slate-200">{m.desc}</div>
                                                     <div className="flex justify-between mt-1 text-[10px] text-slate-400 font-mono">
                                                         <span>{m.date ? new Date(m.date).toLocaleDateString() : '-'}</span>
@@ -1971,93 +1880,155 @@
                                                     </div>
                                                 </div>
                                             ))}
+                                            
                                             {intervention.matches.length === 0 && (
-                                                <div className="text-xs text-slate-500 italic">No corresponding bank transaction matched.</div>
+                                                <div className="text-xs text-slate-500 italic">No corresponding bank transaction automatically matched.</div>
                                             )}
+
+                                            {/* Manual Bank Search & Link Tool */}
+                                            <div className="pt-2 border-t border-slate-800 space-y-2">
+                                                <h6 className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                                                    <i className="fas fa-search"></i> Manual Bank Lookup & Link
+                                                </h6>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <input 
+                                                        type="text" 
+                                                        value={manualTraceSearch} 
+                                                        onChange={e => setManualTraceSearch(e.target.value)} 
+                                                        placeholder="4-Digit TRACE (e.g. 2756)" 
+                                                        className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-white font-mono placeholder-slate-600 outline-none focus:border-indigo-500" 
+                                                    />
+                                                    <input 
+                                                        type="text" 
+                                                        value={manualDescSearch} 
+                                                        onChange={e => setManualDescSearch(e.target.value)} 
+                                                        placeholder="Desc / Keyword (CRM3)" 
+                                                        className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-white font-mono placeholder-slate-600 outline-none focus:border-indigo-500" 
+                                                    />
+                                                </div>
+
+                                                {manualSearchResultTxns.length > 0 && (
+                                                    <div className="space-y-1.5 mt-2 bg-slate-950 p-2 rounded-xl border border-indigo-500/30">
+                                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Matching Bank Records ({manualSearchResultTxns.length})</span>
+                                                        {manualSearchResultTxns.map((tx, idx) => (
+                                                            <div key={idx} className="p-1.5 bg-slate-900 rounded border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                                                                <div className="truncate flex-1 pr-2">
+                                                                    <div className="text-slate-200 truncate font-bold">{tx.desc}</div>
+                                                                    <div className="text-slate-500">{tx.date ? new Date(tx.date).toLocaleDateString() : '-'} • Rs. {tx.amount}</div>
+                                                                </div>
+                                                                <button 
+                                                                    onClick={() => attachManualBankTxn(tx)} 
+                                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2 py-1 rounded text-[9px] uppercase shrink-0"
+                                                                >
+                                                                    Attach
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* Action Header bar inside modal summary */}
-                                    <div className="mt-4 text-[10px] text-slate-500 font-mono flex items-center justify-between">
+                                    <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
                                         <span>AuditCore Forensic Report Card</span>
                                         <span>{new Date().toLocaleDateString()}</span>
                                     </div>
                                 </div>
 
-                                {/* Right Side: Visual Slip Viewer & Interactive Image Controls */}
+                                {/* Right Side: Visual Slip Viewer & Interactive Image Controls / Adjusters */}
                                 <div className="md:w-7/12 p-6 flex flex-col bg-slate-900/40">
                                     <div className="flex-1 bg-slate-950 rounded-2xl overflow-hidden relative border border-slate-800 mb-3 flex items-center justify-center">
                                         {currentSlip ? (
                                             currentSlip.type.includes('pdf') ? (
                                                 <div className="flex flex-col items-center text-slate-500">
                                                     <i className="fas fa-file-pdf text-5xl mb-2 text-rose-500"></i>
-                                                    <button data-html2canvas-ignore="true" onClick={() => window.open(currentSlip.url)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Open PDF Document</button>
+                                                    <button onClick={() => window.open(currentSlip.url)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Open PDF Document</button>
                                                 </div>
                                             ) : (
-                                                <img src={customPreviewUrl || currentSlip.url} className="w-full h-full object-contain" />
+                                                <img 
+                                                    src={customPreviewUrl || currentSlip.url} 
+                                                    onClick={() => { setFullscreenSlip(currentSlip); setZoomLevel(1); setRotation(0); }} 
+                                                    className="w-full h-full object-contain cursor-zoom-in" 
+                                                    title="Click to view full screen with zoom controls"
+                                                />
                                             )
                                         ) : (
                                             <div className="text-center p-6">
                                                 <i className="fas fa-file-invoice text-4xl text-slate-700 mb-2"></i>
                                                 <p className="text-xs text-slate-500">No Image Slip Loaded in Local Folder</p>
                                                 {intervention.link && (
-                                                    <a data-html2canvas-ignore="true" href={intervention.link} target="_blank" rel="noreferrer" className="mt-3 inline-block px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all">Open Cloud Link</a>
+                                                    <a href={intervention.link} target="_blank" rel="noreferrer" className="mt-3 inline-block px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all">Open Cloud Link</a>
                                                 )}
                                             </div>
                                         )}
 
-                                        {/* Action Buttons Overlay */}
                                         {currentSlip && !currentSlip.type.includes('pdf') && (
-                                            <button data-html2canvas-ignore="true" onClick={() => { setFullscreenSlip(currentSlip); setZoomLevel(1); setRotation(0); }} className="absolute top-4 right-14 bg-slate-900/80 hover:bg-slate-800 text-white w-9 h-9 rounded-xl flex items-center justify-center border border-slate-700" title="Full Screen View">
+                                            <button onClick={() => { setFullscreenSlip(currentSlip); setZoomLevel(1); setRotation(0); }} className="absolute top-4 right-4 bg-slate-900/80 hover:bg-slate-800 text-white w-9 h-9 rounded-xl flex items-center justify-center border border-slate-700" title="Full Screen View">
                                                 <i className="fas fa-search-plus"></i>
                                             </button>
                                         )}
-                                        
-                                        {/* Download Dual-Pane Evidence Button */}
-                                        <button data-html2canvas-ignore="true" onClick={downloadEvidence} className="absolute top-4 right-4 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl flex items-center gap-1.5 border border-indigo-400/50 shadow-lg font-bold text-xs" title="Download Full Dual-Pane Evidence Sheet">
-                                            <i className="fas fa-download"></i>
-                                            <span>Capture Evidence</span>
-                                        </button>
                                     </div>
 
-                                    {/* Image Processing Adjustment Bar */}
+                                    {/* Restored OCR Preprocessing & Image Tweaker Controls Panel */}
                                     {currentSlip && !currentSlip.type.includes('pdf') && (
-                                        <div data-html2canvas-ignore="true" className="bg-slate-950 p-3 rounded-2xl border border-slate-800 mb-3 space-y-2">
-                                            <div className="flex justify-between items-center text-[10px] font-bold uppercase text-slate-400">
-                                                <span><i className="fas fa-sliders text-indigo-400 mr-1"></i> Image Contrast & Enhancement</span>
-                                                <button onClick={rescanModalImage} disabled={isRescanning} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px]">
-                                                    <i className={`fas ${isRescanning ? 'fa-spinner fa-spin' : 'fa-sync-alt'} mr-1`}></i>
-                                                    {isRescanning ? 'Scanning...' : 'Re-run OCR on Image'}
+                                        <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 mb-3 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                                                    <i className="fas fa-sliders-h"></i> OCR Image Preprocessing & Contrast Tweaker
+                                                </span>
+                                                <button
+                                                    onClick={rescanModalImageWithAdjuster}
+                                                    disabled={isRescanning}
+                                                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold uppercase rounded-lg border border-indigo-400/40 flex items-center gap-1.5 transition-all shadow-md"
+                                                >
+                                                    <i className={`fas ${isRescanning ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i>
+                                                    {isRescanning ? 'Scanning...' : 'Rescan OCR with Adjustments'}
                                                 </button>
                                             </div>
-                                            <div className="grid grid-cols-3 gap-3">
+                                            <div className="grid grid-cols-3 gap-3 text-[10px] font-mono text-slate-400">
                                                 <div>
-                                                    <div className="flex justify-between text-[9px] text-slate-400 mb-1">
+                                                    <div className="flex justify-between mb-0.5">
                                                         <span>Contrast</span>
-                                                        <span className="font-mono text-indigo-400">{imgContrast.toFixed(1)}</span>
+                                                        <span className="text-indigo-300 font-bold">{imgContrast.toFixed(1)}</span>
                                                     </div>
-                                                    <input type="range" min="0.5" max="3.0" step="0.1" value={imgContrast} onChange={e => setImgContrast(parseFloat(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                                                    <input 
+                                                        type="range" min="0.5" max="3.0" step="0.1" 
+                                                        value={imgContrast} 
+                                                        onChange={e => setImgContrast(parseFloat(e.target.value))} 
+                                                        className="w-full accent-indigo-500 h-1 bg-slate-800 rounded" 
+                                                    />
                                                 </div>
                                                 <div>
-                                                    <div className="flex justify-between text-[9px] text-slate-400 mb-1">
+                                                    <div className="flex justify-between mb-0.5">
                                                         <span>Brightness</span>
-                                                        <span className="font-mono text-indigo-400">{imgBrightness}</span>
+                                                        <span className="text-indigo-300 font-bold">{imgBrightness}</span>
                                                     </div>
-                                                    <input type="range" min="-100" max="100" step="5" value={imgBrightness} onChange={e => setImgBrightness(parseInt(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                                                    <input 
+                                                        type="range" min="-100" max="100" step="5" 
+                                                        value={imgBrightness} 
+                                                        onChange={e => setImgBrightness(parseInt(e.target.value))} 
+                                                        className="w-full accent-indigo-500 h-1 bg-slate-800 rounded" 
+                                                    />
                                                 </div>
                                                 <div>
-                                                    <div className="flex justify-between text-[9px] text-slate-400 mb-1">
-                                                        <span>Binarize Cutoff</span>
-                                                        <span className="font-mono text-indigo-400">{imgThreshold}</span>
+                                                    <div className="flex justify-between mb-0.5">
+                                                        <span>Threshold</span>
+                                                        <span className="text-indigo-300 font-bold">{imgThreshold}</span>
                                                     </div>
-                                                    <input type="range" min="50" max="230" step="5" value={imgThreshold} onChange={e => setImgThreshold(parseInt(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                                                    <input 
+                                                        type="range" min="50" max="220" step="5" 
+                                                        value={imgThreshold} 
+                                                        onChange={e => setImgThreshold(parseInt(e.target.value))} 
+                                                        className="w-full accent-indigo-500 h-1 bg-slate-800 rounded" 
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
                                     )}
 
                                     {/* Action Bar */}
-                                    <div data-html2canvas-ignore="true" className="bg-slate-950 rounded-2xl p-4 border border-slate-800 space-y-3">
+                                    <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 space-y-3">
                                         <div className="flex flex-wrap gap-1.5">
                                             {STANDARD_COMMENTS.map(tag => (
                                                 <button key={tag} onClick={() => setModalNote(tag)} className="px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-[10px] font-bold uppercase text-slate-400 hover:bg-indigo-600 hover:text-white transition-colors">{tag}</button>
@@ -2082,7 +2053,7 @@
                         </div>
                     )}
 
-                    {/* Fullscreen Slip Viewer */}
+                    {/* Fullscreen Slip Evidence Viewer */}
                     {fullscreenSlip && (
                         <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col animate-fade-in">
                             <div className="h-16 flex justify-between items-center px-6 border-b border-white/10 bg-slate-950">
