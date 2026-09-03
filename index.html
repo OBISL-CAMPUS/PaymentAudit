@@ -53,17 +53,19 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-        const STANDARD_COMMENTS = [
+        const DEFAULT_STANDARD_COMMENTS = [
             'Late Fees Not Paid',
             'Not Available in Bank Statement',
             'VERIFIED: Deposit Confirmed',
             'EXCUSED: Late Fee Waived',
             'FLAGGED: Partial Amount',
             'REJECTED: Invalid Receipt',
-            'DUPLICATE: Double Submission'
+            'DUPLICATE: Double Submission',
+            'Wrong Slip Attached',
+            'Future Payments'
         ];
 
-        const normalize = (str) => (str || "").toString().toUpperCase().trim().replace(/[^A-Z0-9\s]/g, ' ');
+        const normalize = (str) => (str || "").toString().toUpperCase().trim().replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ');
 
         const getTodayDDMMYYYY = () => {
             const today = new Date();
@@ -75,7 +77,7 @@
 
         const formatDDMMYYYYtoYYYYMMDD = (str) => {
             if (!str) return '';
-            const parts = str.split('/');
+            const parts = str.toString().trim().split(/[\/\-.]/);
             if (parts.length === 3) {
                 const [d, m, y] = parts;
                 if (d && m && y && y.length === 4) {
@@ -87,7 +89,7 @@
 
         const formatYYYYMMDDtoDDMMYYYY = (str) => {
             if (!str) return '';
-            const parts = str.split('-');
+            const parts = str.toString().trim().split('-');
             if (parts.length === 3) {
                 const [y, m, d] = parts;
                 return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
@@ -143,13 +145,28 @@
             if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
             if (typeof val === 'number') return new Date(Math.round((val - 25569) * 86400 * 1000));
             const cleanStr = val.toString().trim();
-            const parts = cleanStr.split(/[/\s.-]/);
-            if (parts.length >= 3) {
-                let d = parseInt(parts[0], 10), m = parseInt(parts[1], 10) - 1, y = parseInt(parts[2], 10);
+
+            // 1. Strict ISO Format (YYYY-MM-DD or YYYY/MM/DD)
+            const isoMatch = cleanStr.match(/^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])/);
+            if (isoMatch) {
+                const y = parseInt(isoMatch[1], 10);
+                const m = parseInt(isoMatch[2], 10) - 1;
+                const d = parseInt(isoMatch[3], 10);
+                const dObj = new Date(y, m, d);
+                return isNaN(dObj.getTime()) ? null : dObj;
+            }
+
+            // 2. Strict Commonwealth/European Format (DD/MM/YYYY or DD-MM-YYYY)
+            const dmyMatch = cleanStr.match(/^(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](\d{2,4})/);
+            if (dmyMatch) {
+                let d = parseInt(dmyMatch[1], 10);
+                let m = parseInt(dmyMatch[2], 10) - 1;
+                let y = parseInt(dmyMatch[3], 10);
                 if (y < 100) y += 2000;
                 const dObj = new Date(y, m, d);
                 return isNaN(dObj.getTime()) ? null : dObj;
             }
+
             const direct = new Date(cleanStr);
             return isNaN(direct.getTime()) ? null : direct;
         };
@@ -161,9 +178,24 @@
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
+                    
+                    // Downscale large camera photos to optimal max dimension (1800px) for speed & memory
+                    let width = img.width;
+                    let height = img.height;
+                    const maxDim = 1800;
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
 
                     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const data = imgData.data;
@@ -185,14 +217,14 @@
                         data[i + 2] = color;
                     }
                     ctx.putImageData(imgData, 0, 0);
-                    resolve(canvas.toDataURL('image/jpeg'));
+                    resolve(canvas.toDataURL('image/jpeg', 0.9));
                 };
                 img.onerror = () => resolve(imageSource);
                 img.src = imageSource;
             });
         };
 
-        const extractSlipData = (text) => {
+        const extractSlipData = (text, currentConfig = {}) => {
             if (!text) return { amount: null, trace: null, potentialTraces: [], detectedDate: null, receiverMatched: false, accountMatched: false };
 
             const cleanedText = text.replace(/([0-9])O([0-9])/gi, '$10$2')
@@ -206,11 +238,13 @@
             let trace = null;
             const potentialTraces = [];
             
-            // STRICT RULE: Require explicit keyword (TRACE, SEQ, TXN, REF) before extracting 4-digit trace number
-            const traceLabelMatch = cleanedText.match(/(?:TRACE|SEQ|TXN|REF)[\s:.-]*(\d{4})\b/i);
+            // Capture 4 to 8 digit trace/seq/txn/stan numbers
+            const traceLabelMatch = cleanedText.match(/(?:TRACE(?:\s*NO)?|SEQ(?:\s*NO)?|TXN(?:\s*NO)?|REF(?:\s*NO)?|STAN)[\s:.-]*([0-9]{4,8})\b/i);
             if (traceLabelMatch) {
-                trace = traceLabelMatch[1];
+                const fullTrace = traceLabelMatch[1];
+                trace = fullTrace.length > 4 ? fullTrace.slice(-4) : fullTrace;
                 potentialTraces.push(trace);
+                if (fullTrace !== trace) potentialTraces.push(fullTrace);
             }
 
             let detectedDate = null;
@@ -219,10 +253,29 @@
                 detectedDate = parseDate(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
             }
 
-            const receiverMatched = /H\s*G\s*A\s*M\s*R\s*GAMAGE|GAMAGE\s*HGAMR|MICHAEL\s*RANUKA\s*GAMAGE/i.test(cleanedText);
-            const accountMatched = /1020023476/.test(cleanedText);
+            // Dynamic check based on configuration with fallback to default names
+            const configAccount = (currentConfig.depositAccountNumber || '1020023476').replace(/\s+/g, '');
+            const configOwner = normalize(currentConfig.depositAccountOwner || 'H G A M R GAMAGE');
+            const ownerTokens = configOwner.split(' ').filter(t => t.length > 1);
+
+            const receiverMatched = /H\s*G\s*A\s*M\s*R\s*GAMAGE|GAMAGE\s*HGAMR|MICHAEL\s*RANUKA\s*GAMAGE/i.test(cleanedText) ||
+                (ownerTokens.length > 0 && ownerTokens.every(tok => cleanedText.toUpperCase().includes(tok)));
+
+            const accountMatched = new RegExp(configAccount).test(cleanedText.replace(/\s+/g, '')) || /1020023476/.test(cleanedText.replace(/\s+/g, ''));
 
             return { amount, trace, potentialTraces, detectedDate, receiverMatched, accountMatched };
+        };
+
+        const extractIdFromSlip = (file) => {
+            const fileNameMatch = file.name.match(/\b\d{2,6}\b/);
+            const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "";
+            const isGenericFolder = /grade|class|slip|receipt|august|audit|photo|image/i.test(folder);
+            if (fileNameMatch) return fileNameMatch[0];
+            if (folder && !isGenericFolder) {
+                const folderMatch = folder.match(/\b\d{2,6}\b/);
+                if (folderMatch) return folderMatch[0];
+            }
+            return file.name.match(/\d+/)?.[0] || "";
         };
 
         const DB_KEY = 'audit_core_db_v23';
@@ -244,6 +297,13 @@
             return 'IND-' + id;
         };
 
+        const isPdfFile = (slip) => {
+            if (!slip) return false;
+            const typeStr = (slip.type || '').toLowerCase();
+            const nameStr = (slip.name || '').toLowerCase();
+            return typeStr.includes('pdf') || nameStr.endsWith('.pdf');
+        };
+
         const App = () => {
             const [config, setConfig] = useState({
                 gradeFees: { 1: 3500, 2: 3000, 3: 3000, 4: 3000, 5: 3000, 6: 3000, 7: 3000, 8: 3000, 9: 3000, 10: 3000, 11: 3000 },
@@ -253,6 +313,10 @@
                 depositAccountOwner: 'H G A M R Gamage',
                 depositAccountNumber: '1020023476'
             });
+
+            const [standardComments, setStandardComments] = useState(DEFAULT_STANDARD_COMMENTS);
+            const [newCommentInput, setNewCommentInput] = useState("");
+            const [showCommentEditor, setShowCommentEditor] = useState(false);
 
             const [processedData, setProcessedData] = useState({ 
                 studentMap: {}, 
@@ -336,7 +400,7 @@
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = setTimeout(() => saveToDB(), 1500); 
                 return () => clearTimeout(saveTimeoutRef.current);
-            }, [results, config, processedData]);
+            }, [results, config, processedData, standardComments]);
 
             useEffect(() => {
                 if (!intervention) {
@@ -344,7 +408,7 @@
                     return;
                 }
                 const slip = processedData.receipts.find(r => r.id === intervention.id);
-                if (slip && !slip.type.includes('pdf')) {
+                if (slip && !isPdfFile(slip)) {
                     preprocessImage(slip.url, { contrast: imgContrast, brightness: imgBrightness, thresholdUpper: imgThreshold })
                         .then(url => setCustomPreviewUrl(url));
                 }
@@ -376,23 +440,33 @@
             const saveToDB = async () => {
                 try {
                     const payload = {
-                        config, results,
+                        config, results, standardComments,
                         data: { studentMap: processedData.studentMap, bankList: processedData.bankList, familyLinks: processedData.familyLinks },
                         status: { master: assetStatus.master, bank: assetStatus.bank, family: assetStatus.family, slips: false },
                         timestamp: new Date().getTime(),
                         ocrCache: cacheRef.current
                     };
-                    await idbKeyval.set(DB_KEY, payload);
-                    setLastSaved(new Date());
+                    if (window.idbKeyval) {
+                        await idbKeyval.set(DB_KEY, payload);
+                        setLastSaved(new Date());
+                    }
                 } catch (e) { console.error("Save Error", e); }
             };
 
             const loadFromDB = async () => {
                 try {
+                    if (!window.idbKeyval) return;
                     const saved = await idbKeyval.get(DB_KEY);
                     if (saved) {
                         setConfig(saved.config || config);
                         setResults(saved.results || []);
+                        if (saved.standardComments && Array.isArray(saved.standardComments)) {
+                            const merged = [...saved.standardComments];
+                            DEFAULT_STANDARD_COMMENTS.forEach(sc => {
+                                if (!merged.includes(sc)) merged.push(sc);
+                            });
+                            setStandardComments(merged);
+                        }
                         setProcessedData(prev => ({
                             ...prev,
                             studentMap: saved.data?.studentMap || {},
@@ -406,12 +480,31 @@
                 } catch (e) { console.error("Load Error", e); }
             };
 
+            const handleAddStandardComment = () => {
+                const trimmed = newCommentInput.trim();
+                if (!trimmed) return;
+                if (standardComments.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+                    return showToast("This comment already exists in the list.", "error");
+                }
+                const updated = [...standardComments, trimmed];
+                setStandardComments(updated);
+                setNewCommentInput("");
+                setModalNote(trimmed);
+                showToast(`Added comment "${trimmed}" to preset list!`, "success");
+            };
+
+            const handleRemoveStandardComment = (commentToRemove) => {
+                const updated = standardComments.filter(c => c !== commentToRemove);
+                setStandardComments(updated);
+                showToast(`Removed comment from list.`, "info");
+            };
+
             const resetSystem = () => {
                 setConfirmDialog({
                     title: "RESET SYSTEM",
                     message: "Are you sure you want to clear all imported datasets, cached OCR entries, and current audit state?",
                     onConfirm: async () => {
-                        await idbKeyval.del(DB_KEY);
+                        if (window.idbKeyval) await idbKeyval.del(DB_KEY);
                         window.location.reload();
                     }
                 });
@@ -451,12 +544,15 @@
                     }
                 });
 
-                // 2. Exact Full Name Match (100% confidence)
-                if (candidateTxns.length === 0 && student.name && student.name.length > 3) {
-                    const cleanStudentName = student.name.trim().toUpperCase();
+                // 2. Normalized Full Name Match (handles initials and dotted names)
+                if (candidateTxns.length === 0 && student.name && student.name !== 'Unknown Student' && student.name.length > 3) {
+                    const cleanStudentName = normalize(student.name);
+                    const nameParts = cleanStudentName.split(' ').filter(p => p.length > 1);
                     fullBankList.forEach(txn => {
                         if (txn.desc.includes(cleanStudentName)) {
                             candidateTxns.push({ ...txn, method: 'Exact Full Name Match', confidence: 100 });
+                        } else if (nameParts.length >= 2 && nameParts.every(part => txn.desc.includes(part))) {
+                            candidateTxns.push({ ...txn, method: 'Multi-part Name Match', confidence: 95 });
                         }
                     });
                 }
@@ -484,19 +580,18 @@
                 const requiredLateFee = isLateSubmission ? Number(currentConfig.lateFee || 500) : 0;
 
                 const indivTotalExpected = indivBaseFee + requiredLateFee;
-                const familyTotalExpected = familyBaseFee + (isLateSubmission ? requiredLateFee * cluster.length : 0);
+                const familyTotalExpected = familyBaseFee + (isLateSubmission ? requiredLateFee * Math.max(1, cluster.length) : 0);
 
                 let expectedBaseFee = indivBaseFee;
                 let totalExpected = indivTotalExpected;
-                let isFamilyPayment = false;
+                let isFamilyPayment = cluster.length > 1;
 
                 if (cluster.length > 1 && (Math.abs(totalPaid - familyTotalExpected) < 1.0 || Math.abs(totalPaid - familyBaseFee) < 1.0)) {
                     expectedBaseFee = familyBaseFee;
                     totalExpected = familyTotalExpected;
-                    isFamilyPayment = true;
                 }
 
-                const has100PercentMatch = candidateTxns.length > 0 && candidateTxns.some(t => t.confidence === 100);
+                const has100PercentMatch = candidateTxns.length > 0 && candidateTxns.some(t => t.confidence >= 95);
                 const isAmountExactlyMatched = Math.abs(totalPaid - totalExpected) < 1.0 || Math.abs(totalPaid - expectedBaseFee) < 1.0;
 
                 let statusType = 'unmatched';
@@ -580,11 +675,17 @@
                 setStatus("Indexing Bank Transactions...");
 
                 const bankTokenMap = new Map(); 
+                const knownStudentTokens = new Set(Object.keys(studentMap));
+
                 const extractVBATokens = (str) => {
                     if (!str) return [];
-                    const matches = str.match(/\b\d{3,5}\b/g) || [];
-                    const exclusions = ['2023', '2024', '2025', '2026', '2027', '2028'];
-                    return matches.filter(m => !exclusions.includes(m));
+                    const matches = str.match(/\b\d{1,6}\b/g) || [];
+                    const exclusions = ['2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'];
+                    return matches.filter(m => {
+                        if (exclusions.includes(m)) return false;
+                        if (m.length <= 2) return knownStudentTokens.has(m);
+                        return true;
+                    });
                 };
 
                 bankList.forEach(txn => {
@@ -630,7 +731,7 @@
                 try {
                     if (!schedulerRef.current) await initEngine();
                     let imageToScan = slip.url;
-                    if (slip.type.includes('pdf')) {
+                    if (isPdfFile(slip)) {
                         const pdf = await pdfjsLib.getDocument(slip.url).promise;
                         const page = await pdf.getPage(1);
                         const viewport = page.getViewport({ scale: 2.0 });
@@ -645,7 +746,7 @@
                     const processedImg = await preprocessImage(imageToScan);
                     const ret = await schedulerRef.current.addJob('recognize', processedImg);
                     const text = ret.data.text;
-                    const slipData = extractSlipData(text);
+                    const slipData = extractSlipData(text, config);
 
                     cacheRef.current[slip.name] = { text, ...slipData };
 
@@ -668,7 +769,7 @@
             const rescanModalImageWithAdjuster = async () => {
                 if (!intervention) return;
                 const slip = processedData.receipts.find(r => r.id === intervention.id);
-                if (!slip || slip.type.includes('pdf')) return showToast("Image adjustment is applicable to JPG/PNG images only.", "info");
+                if (!slip || isPdfFile(slip)) return showToast("Image adjustment is applicable to JPG/PNG images only.", "info");
 
                 setIsRescanning(true);
                 try {
@@ -683,7 +784,7 @@
 
                     const ret = await schedulerRef.current.addJob('recognize', tweakedImgDataUrl);
                     const text = ret.data.text;
-                    const slipData = extractSlipData(text);
+                    const slipData = extractSlipData(text, config);
 
                     cacheRef.current[slip.name] = { text, ...slipData };
 
@@ -710,18 +811,26 @@
                 setImgThreshold(160);
                 setManualTraceSearch('');
                 setManualDescSearch('');
+                setShowCommentEditor(false);
             };
 
             const saveReviewAndNext = () => {
                 if (!intervention) return;
 
-                if (!intervention.accountNameVerified || !intervention.accountNumVerified) {
-                    showToast("Please visually confirm and tick Receiver Name & Account Number before proceeding.", "error");
+                const isNegativeOrRejection = /reject|invalid|wrong|not available|waived|excused/i.test(modalNote);
+                if (!isNegativeOrRejection && (!intervention.accountNameVerified || !intervention.accountNumVerified)) {
+                    showToast("Please visually tick Receiver Name & Account Number before confirming positive verification.", "error");
                     return;
                 }
 
                 const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
-                const updatedResults = results.map(r => r.id === intervention.id ? { ...r, forensicNote: modalNote, accountNameVerified: intervention.accountNameVerified, accountNumVerified: intervention.accountNumVerified, isAudited: true } : r);
+                const updatedResults = results.map(r => r.id === intervention.id ? { 
+                    ...r, 
+                    forensicNote: modalNote, 
+                    accountNameVerified: intervention.accountNameVerified, 
+                    accountNumVerified: intervention.accountNumVerified, 
+                    isAudited: true 
+                } : r);
                 setResults(updatedResults);
 
                 if (currentIdx !== -1 && currentIdx + 1 < filteredResults.length) {
@@ -736,6 +845,19 @@
                     setIsReviewMode(false);
                     setStatus("Manual Audit complete for this view!");
                     showToast("Manual Audit complete for current view!", "success");
+                }
+            };
+
+            const navigateReview = (direction) => {
+                if (!intervention) return;
+                const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
+                const targetIdx = currentIdx + direction;
+                if (targetIdx >= 0 && targetIdx < filteredResults.length) {
+                    const target = filteredResults[targetIdx];
+                    setIntervention(target);
+                    setModalNote(target.forensicNote || "");
+                    setManualTraceSearch('');
+                    setManualDescSearch('');
                 }
             };
 
@@ -903,13 +1025,13 @@
                                 });
                                 found.bank = true;
                             } else if (isFamilyCSV) {
-                                const idFieldIdx = headers.findIndex(h => h.includes('member') || h.includes('family') || h.includes('id')) !== -1 ? headers.findIndex(h => h.includes('member') || h.includes('family') || h.includes('id')) : 2;
-
                                 dataRows.forEach(r => {
-                                    const idField = r[idFieldIdx] || r[0];
-                                    if (idField) {
-                                        const cluster = idField.toString().split('-').map(s => s.trim()).filter(Boolean);
-                                        if (cluster.length > 0) cluster.forEach(mid => familyLinksObj[mid] = cluster);
+                                    // Extract all digit clusters from the row
+                                    const rowString = r.join(' ');
+                                    const cluster = (rowString.match(/\b\d{2,6}\b/g) || []).map(s => s.trim());
+                                    if (cluster.length > 1) {
+                                        const uniqueCluster = [...new Set(cluster)];
+                                        uniqueCluster.forEach(mid => familyLinksObj[mid] = uniqueCluster);
                                     }
                                 });
                                 found.family = true;
@@ -918,9 +1040,8 @@
                             console.error(`Error parsing file ${file.name}:`, err);
                         }
                     } else if (isSlip) {
-                        const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "Unsorted";
-                        const idFromFolder = (folder.match(/\d+/) || [file.name.match(/\d+/)?.[0] || ""])[0];
-                        newReceipts.push({ file, id: idFromFolder, name: file.name, url: URL.createObjectURL(file), type: file.type });
+                        const idFromSlip = extractIdFromSlip(file);
+                        newReceipts.push({ file, id: idFromSlip, name: file.name, url: URL.createObjectURL(file), type: file.type || '' });
                         found.slips = true;
                     }
                 }
@@ -968,24 +1089,33 @@
                                 const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: "" });
                                 if (rows.length > 1) {
                                     const headers = rows[0].map(h => (h || "").toString().toLowerCase().trim());
-                                    const tokenIdx = headers.findIndex(h => h.includes('token'));
-                                    const nameIdx = headers.findIndex(h => h.includes('name'));
+                                    const tokenIdx = headers.findIndex(h => h.includes('token') || h.includes('id'));
+                                    const nameIdx = headers.findIndex(h => h.includes('student name') || h.includes('name'));
                                     const gradeIdx = headers.findIndex(h => h.includes('grade'));
-                                    const paidIdx = headers.findIndex(h => h.includes('paid'));
+                                    const paidIdx = headers.findIndex(h => h.includes('amount paid') || h.includes('paid'));
+                                    const baseFeeIdx = headers.findIndex(h => h.includes('base fee'));
+                                    const lateFeeIdx = headers.findIndex(h => h.includes('late fee'));
                                     const expectedIdx = headers.findIndex(h => h.includes('total expected') || h.includes('expected'));
-                                    const commentIdx = headers.findIndex(h => h.includes('comment') || h.includes('remark'));
+                                    const commentIdx = headers.findIndex(h => h.includes('comment') || h.includes('remark') || h.includes('note'));
 
                                     rows.slice(1).forEach((r, i) => {
-                                        const token = r[tokenIdx >= 0 ? tokenIdx : 0];
+                                        const token = (r[tokenIdx >= 0 ? tokenIdx : 0] || '').toString().trim();
                                         const studentName = r[nameIdx >= 0 ? nameIdx : 1];
                                         if (token || studentName) {
+                                            const paid = r[paidIdx >= 0 ? paidIdx : 4] || '0';
+                                            const totalExpected = r[expectedIdx >= 0 ? expectedIdx : 7] || '0';
+                                            const baseFee = baseFeeIdx >= 0 && r[baseFeeIdx] !== "" ? r[baseFeeIdx] : (Number(totalExpected) > 500 ? Number(totalExpected) - 500 : totalExpected);
+                                            const lateFee = lateFeeIdx >= 0 && r[lateFeeIdx] !== "" ? r[lateFeeIdx] : (Number(totalExpected) > Number(baseFee) ? Number(totalExpected) - Number(baseFee) : 0);
+
                                             parsedFindings.push({
                                                 id: `SEC-${sheetName}-${i}`,
                                                 token: token || 'N/A',
                                                 name: studentName || 'Student',
                                                 grade: r[gradeIdx >= 0 ? gradeIdx : 2] || 'Grade 1',
-                                                paid: r[paidIdx >= 0 ? paidIdx : 4] || '0',
-                                                totalExpected: r[expectedIdx >= 0 ? expectedIdx : 7] || '0',
+                                                paid: paid,
+                                                baseFee: baseFee,
+                                                lateFee: lateFee,
+                                                totalExpected: totalExpected,
                                                 comment: r[commentIdx >= 0 ? commentIdx : 12] || 'Audited Record',
                                                 sheetCategory: sheetName
                                             });
@@ -994,10 +1124,9 @@
                                 }
                             });
                         } catch (err) { console.error("Secondary Report Error:", err); }
-                    } else if (name.endsWith('.jpg') || name.endsWith('.png') || name.endsWith('.jpeg')) {
-                        const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "";
-                        const idFromFolder = (folder.match(/\d+/) || [file.name.match(/\d+/)?.[0] || ""])[0];
-                        parsedSlips.push({ id: idFromFolder, name: file.name, url: URL.createObjectURL(file) });
+                    } else if (name.endsWith('.jpg') || name.endsWith('.png') || name.endsWith('.jpeg') || name.endsWith('.pdf')) {
+                        const idFromSlip = extractIdFromSlip(file);
+                        parsedSlips.push({ id: idFromSlip, name: file.name, url: URL.createObjectURL(file), type: file.type || '' });
                     }
                 }
 
@@ -1024,14 +1153,17 @@
 
             const selectedSecondarySlip = useMemo(() => {
                 if (!selectedSecondaryStudent) return null;
-                return secondarySlips.find(s => s.id === selectedSecondaryStudent.token) || secondarySlips[0] || null;
-            }, [selectedSecondaryStudent, secondarySlips]);
+                const matchToken = selectedSecondaryStudent.token.toString().trim();
+                return secondarySlips.find(s => s.id === matchToken) || 
+                       processedData.receipts.find(s => s.id === matchToken) || 
+                       secondarySlips[0] || null;
+            }, [selectedSecondaryStudent, secondarySlips, processedData.receipts]);
 
             const downloadParentCard = async () => {
                 if (!parentCardRef.current) return;
                 try {
                     showToast("Generating Parent Advisory Notice Image...", "info");
-                    const canvas = await html2canvas(parentCardRef.current, { scale: 2, backgroundColor: '#0f172a', useCORS: true });
+                    const canvas = await html2canvas(parentCardRef.current, { scale: 2, backgroundColor: '#0b0f19', useCORS: true, allowTaint: true, logging: false });
                     const link = document.createElement('a');
                     link.download = `Official_Audit_Notice_${selectedSecondaryStudent?.token}_${(selectedSecondaryStudent?.name || 'Student').replace(/\s+/g, '_')}.png`;
                     link.href = canvas.toDataURL('image/png');
@@ -1062,21 +1194,36 @@
                 });
 
                 const wb = XLSX.utils.book_new();
+
+                // 1. Primary Sheet: Master Ledger of All Students
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(results.map(mapRecordToExportRow)), "Master Ledger");
+
+                // 2. Future Payments Sheet
                 const futurePayments = results.filter(r => r.isFuturePayment);
                 if (futurePayments.length > 0) {
                     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(futurePayments.map(mapRecordToExportRow)), "Future Payments");
                 }
 
-                STANDARD_COMMENTS.forEach(stdComment => {
+                // 3. Category Breakdown Tabs (with collision prevention)
+                const addedTokens = new Set();
+                standardComments.forEach(stdComment => {
                     const matchingRecords = results.filter(r => !r.isFuturePayment && r.forensicNote?.trim().toLowerCase().startsWith(stdComment.toLowerCase()));
                     if (matchingRecords.length > 0) {
-                        let cleanTabName = stdComment.replace(/[:\\/?*\[\]]/g, '').substring(0, 30).trim();
-                        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matchingRecords.map(mapRecordToExportRow)), cleanTabName);
+                        matchingRecords.forEach(m => addedTokens.add(m.id));
+                        let cleanTabName = stdComment.replace(/[:\\/?*\[\]]/g, '').substring(0, 26).trim() || 'Category';
+                        let uniqueTabName = cleanTabName;
+                        let counter = 1;
+                        while (wb.SheetNames.includes(uniqueTabName)) {
+                            uniqueTabName = `${cleanTabName} (${counter++})`;
+                        }
+                        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matchingRecords.map(mapRecordToExportRow)), uniqueTabName);
                     }
                 });
 
-                if (wb.SheetNames.length === 0) {
-                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(results.map(mapRecordToExportRow)), "Master Audit");
+                // 4. Custom/Other Remarks Tab
+                const customNotesRecords = results.filter(r => !r.isFuturePayment && !addedTokens.has(r.id) && r.forensicNote && r.forensicNote.trim().length > 0);
+                if (customNotesRecords.length > 0) {
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customNotesRecords.map(mapRecordToExportRow)), "Custom Remarks");
                 }
 
                 XLSX.writeFile(wb, `AuditCore_Report_${config.auditMonth.replace(/\s+/g, '_')}_v23.xlsx`);
@@ -1119,7 +1266,10 @@
 
             const filteredResults = useMemo(() => {
                 const baseFiltered = results.filter(r => {
-                    const matchesFilter = activeFilter === 'all' || r.statusType === activeFilter;
+                    const matchesFilter = activeFilter === 'all' || 
+                        (activeFilter === 'future' ? r.isFuturePayment :
+                        (activeFilter === 'unaudited' ? !r.isAudited :
+                        r.statusType === activeFilter));
                     const matchesGrade = gradeFilter === 'all' || parseGradeNumber(r.grade).toString() === gradeFilter;
                     const q = searchQuery.toLowerCase();
                     const matchesSearch = !q || r.folder.toLowerCase().includes(q) || r.id.toString().includes(q) || (r.forensicNote && r.forensicNote.toLowerCase().includes(q));
@@ -1265,7 +1415,7 @@
                                 </div>
                             </div>
                             <div className="text-[9px] font-mono text-slate-500 truncate" title={ocrProgress.text}>
-                                {ocrProgress.isRunning ? ocrProgress.text : "On-Demand Cards"}
+                                {ocrProgress.isRunning ? ocrProgress.text : "On-Demand Ready"}
                             </div>
                         </div>
                     </div>
@@ -1434,18 +1584,28 @@
                                         { id: 'all', label: 'All Records' },
                                         { id: 'confirmed', label: 'Confirmed' },
                                         { id: 'late_fee_missing', label: 'Late Fee Deficit' },
-                                        { id: 'scanning', label: 'Scanning' },
                                         { id: 'odd', label: 'Discrepancy' },
-                                        { id: 'unmatched', label: 'Unmatched' }
-                                    ].map(f => (
-                                        <button
-                                            key={f.id}
-                                            onClick={() => setActiveFilter(f.id)}
-                                            className={`py-1.5 px-3 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all ${activeFilter === f.id ? (f.id === 'late_fee_missing' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white') : 'bg-slate-900/60 text-slate-400 hover:bg-slate-800'}`}
-                                        >
-                                            {f.label} ({results.filter(r => f.id === 'all' || r.statusType === f.id).length})
-                                        </button>
-                                    ))}
+                                        { id: 'unmatched', label: 'Unmatched' },
+                                        { id: 'future', label: 'Future Payments' },
+                                        { id: 'unaudited', label: 'Pending Review' }
+                                    ].map(f => {
+                                        const count = results.filter(r => {
+                                            if (f.id === 'all') return true;
+                                            if (f.id === 'future') return r.isFuturePayment;
+                                            if (f.id === 'unaudited') return !r.isAudited;
+                                            return r.statusType === f.id;
+                                        }).length;
+
+                                        return (
+                                            <button
+                                                key={f.id}
+                                                onClick={() => setActiveFilter(f.id)}
+                                                className={`py-1.5 px-3 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all ${activeFilter === f.id ? (f.id === 'late_fee_missing' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white') : 'bg-slate-900/60 text-slate-400 hover:bg-slate-800'}`}
+                                            >
+                                                {f.label} ({count})
+                                            </button>
+                                        );
+                                    })}
                                 </div>
 
                                 {/* Batch Actions Bar */}
@@ -1487,9 +1647,8 @@
 
                                                 <div
                                                     className={`border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between cursor-pointer transition-all hover-card gap-3 ${
-                                                        res.statusType === 'scanning' ? 'bg-indigo-950/20 border-indigo-500/40 animate-pulse-subtle' :
-                                                        (res.statusType === 'late_fee_missing' ? 'bg-rose-950/20 border-rose-500/30' : 
-                                                        (res.isFamilyPayment ? 'bg-purple-950/20 border-purple-800/40' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/60'))
+                                                        res.statusType === 'late_fee_missing' ? 'bg-rose-950/20 border-rose-500/30' : 
+                                                        (res.isFamilyPayment ? 'bg-purple-950/20 border-purple-800/40' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/60')
                                                     }`}
                                                 >
                                                     <div className="flex items-start md:items-center gap-3.5 flex-1 min-w-0 pr-4" onClick={() => openReview(res)}>
@@ -1505,8 +1664,7 @@
                                                                 <span className="text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-900/50">{res.grade || 'Grade N/A'}</span>
                                                                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
                                                                     res.statusType === 'confirmed' ? 'text-emerald-400 bg-emerald-950/50' :
-                                                                    (res.statusType === 'late_fee_missing' ? 'text-rose-400 bg-rose-950/60 animate-pulse' :
-                                                                    (res.statusType === 'scanning' ? 'text-indigo-400 bg-indigo-950/60' : 'text-amber-400 bg-amber-950/50'))
+                                                                    (res.statusType === 'late_fee_missing' ? 'text-rose-400 bg-rose-950/60 animate-pulse' : 'text-amber-400 bg-amber-950/50')
                                                                 }`}>
                                                                     {res.statusType.replace(/_/g, ' ')}
                                                                 </span>
@@ -1707,7 +1865,7 @@
 
                                                 <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 min-h-[220px] flex items-center justify-center relative overflow-hidden">
                                                     {selectedSecondarySlip ? (
-                                                        <img src={selectedSecondarySlip.url} className="max-h-[260px] object-contain rounded-xl shadow-lg" />
+                                                        <img src={selectedSecondarySlip.url} className="max-h-[260px] object-contain rounded-xl shadow-lg" crossOrigin="anonymous" />
                                                     ) : (
                                                         <div className="text-center p-4">
                                                             <i className="fas fa-image text-3xl text-slate-700 mb-2"></i>
@@ -1743,7 +1901,7 @@
                         )}
                     </div>
 
-                    {/* Inspection Modal with Image Adjusters, Verification Ticks, Manual Bank Lookup, Family Links */}
+                    {/* Inspection Modal with Image Adjusters, Verification Ticks, Manual Bank Lookup, Family Links & Comment Editor */}
                     {intervention && (
                         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
                             
@@ -1754,7 +1912,13 @@
                                     <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800 shadow-xl space-y-4">
                                         <div className="flex justify-between items-start border-b border-slate-800 pb-3">
                                             <div>
-                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Student Summary</span>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Student Summary</span>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => navigateReview(-1)} className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded" title="Previous Record"><i className="fas fa-arrow-left"></i> Prev</button>
+                                                        <button onClick={() => navigateReview(1)} className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded" title="Next Record">Next <i className="fas fa-arrow-right"></i></button>
+                                                    </div>
+                                                </div>
                                                 <h2 className="text-lg font-extrabold text-white">{intervention.folder}</h2>
                                                 <p className="font-mono text-xs text-indigo-400 font-bold">Token: #{intervention.id} | {intervention.grade}</p>
                                             </div>
@@ -1940,7 +2104,7 @@
                                 <div className="md:w-7/12 p-6 flex flex-col bg-slate-900/40">
                                     <div className="flex-1 bg-slate-950 rounded-2xl overflow-hidden relative border border-slate-800 mb-3 flex items-center justify-center">
                                         {currentSlip ? (
-                                            currentSlip.type.includes('pdf') ? (
+                                            isPdfFile(currentSlip) ? (
                                                 <div className="flex flex-col items-center text-slate-500">
                                                     <i className="fas fa-file-pdf text-5xl mb-2 text-rose-500"></i>
                                                     <button onClick={() => window.open(currentSlip.url)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Open PDF Document</button>
@@ -1963,7 +2127,7 @@
                                             </div>
                                         )}
 
-                                        {currentSlip && !currentSlip.type.includes('pdf') && (
+                                        {currentSlip && !isPdfFile(currentSlip) && (
                                             <button onClick={() => { setFullscreenSlip(currentSlip); setZoomLevel(1); setRotation(0); }} className="absolute top-4 right-4 bg-slate-900/80 hover:bg-slate-800 text-white w-9 h-9 rounded-xl flex items-center justify-center border border-slate-700" title="Full Screen View">
                                                 <i className="fas fa-search-plus"></i>
                                             </button>
@@ -1971,7 +2135,7 @@
                                     </div>
 
                                     {/* Restored OCR Preprocessing & Image Tweaker Controls Panel */}
-                                    {currentSlip && !currentSlip.type.includes('pdf') && (
+                                    {currentSlip && !isPdfFile(currentSlip) && (
                                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 mb-3 space-y-2">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
@@ -2027,13 +2191,67 @@
                                         </div>
                                     )}
 
-                                    {/* Action Bar */}
+                                    {/* Action Bar & Comment Management Editor */}
                                     <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 space-y-3">
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {STANDARD_COMMENTS.map(tag => (
-                                                <button key={tag} onClick={() => setModalNote(tag)} className="px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-[10px] font-bold uppercase text-slate-400 hover:bg-indigo-600 hover:text-white transition-colors">{tag}</button>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                                                <i className="fas fa-tags text-indigo-400"></i> Standard Comment Quick Select
+                                            </span>
+                                            <button 
+                                                onClick={() => setShowCommentEditor(!showCommentEditor)}
+                                                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase flex items-center gap-1 transition-colors"
+                                            >
+                                                <i className={`fas ${showCommentEditor ? 'fa-chevron-up' : 'fa-plus-circle'}`}></i>
+                                                {showCommentEditor ? 'Close Edit Section' : 'Edit / Add Comments'}
+                                            </button>
+                                        </div>
+
+                                        {/* Standard Comment Quick-Select Buttons */}
+                                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                                            {standardComments.map(tag => (
+                                                <div key={tag} className="inline-flex items-center">
+                                                    <button 
+                                                        onClick={() => setModalNote(tag)} 
+                                                        className={`px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-[10px] font-bold uppercase text-slate-300 hover:bg-indigo-600 hover:text-white transition-colors ${modalNote === tag ? 'bg-indigo-600 text-white border-indigo-500' : ''}`}
+                                                    >
+                                                        {tag}
+                                                    </button>
+                                                    {showCommentEditor && (
+                                                        <button 
+                                                            onClick={() => handleRemoveStandardComment(tag)} 
+                                                            className="ml-1 text-rose-400 hover:text-rose-300 text-[10px] px-1"
+                                                            title="Delete standard comment from list"
+                                                        >
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
                                             ))}
                                         </div>
+
+                                        {/* Dynamic Add Comment Editor Section */}
+                                        {showCommentEditor && (
+                                            <div className="bg-slate-900/90 p-3 rounded-xl border border-indigo-500/30 space-y-2 animate-fade-in">
+                                                <span className="text-[10px] font-bold uppercase text-indigo-300 block">Add New Preset Auditor Comment</span>
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        type="text" 
+                                                        value={newCommentInput} 
+                                                        onChange={e => setNewCommentInput(e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') handleAddStandardComment(); }}
+                                                        placeholder="Type new comment e.g. 'Partial Deposit Confirmed'..." 
+                                                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-indigo-500 font-mono"
+                                                    />
+                                                    <button 
+                                                        onClick={handleAddStandardComment} 
+                                                        className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all shrink-0 flex items-center gap-1"
+                                                    >
+                                                        <i className="fas fa-plus"></i> Add
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <input
                                             value={modalNote}
                                             onChange={e => setModalNote(e.target.value)}
@@ -2074,9 +2292,11 @@
                                 <button onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.25))} className="text-white hover:text-indigo-400 text-xl font-bold">-</button>
                                 <span className="text-indigo-400 font-mono text-xs font-bold min-w-[3rem] text-center">{Math.round(zoomLevel * 100)}%</span>
                                 <button onClick={() => setZoomLevel(z => Math.min(4, z + 0.25))} className="text-white hover:text-indigo-400 text-xl font-bold">+</button>
+                                <button onClick={() => { setZoomLevel(1); setRotation(0); }} className="text-xs font-mono text-slate-400 hover:text-white uppercase font-bold">Reset</button>
                             </div>
                         </div>
                     )}
+
                 </div>
             );
         };
