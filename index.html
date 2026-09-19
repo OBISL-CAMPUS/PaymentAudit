@@ -146,7 +146,6 @@
             if (typeof val === 'number') return new Date(Math.round((val - 25569) * 86400 * 1000));
             const cleanStr = val.toString().trim();
 
-            // 1. Strict ISO Format (YYYY-MM-DD or YYYY/MM/DD)
             const isoMatch = cleanStr.match(/^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])/);
             if (isoMatch) {
                 const y = parseInt(isoMatch[1], 10);
@@ -156,7 +155,6 @@
                 return isNaN(dObj.getTime()) ? null : dObj;
             }
 
-            // 2. Strict Commonwealth/European Format (DD/MM/YYYY or DD-MM-YYYY)
             const dmyMatch = cleanStr.match(/^(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](\d{2,4})/);
             if (dmyMatch) {
                 let d = parseInt(dmyMatch[1], 10);
@@ -171,6 +169,14 @@
             return isNaN(direct.getTime()) ? null : direct;
         };
 
+        const getStartOfDay = (d) => {
+            if (!d) return null;
+            const dt = new Date(d);
+            if (isNaN(dt.getTime())) return null;
+            dt.setHours(0, 0, 0, 0);
+            return dt;
+        };
+
         const preprocessImage = (imageSource, customParams = {}) => {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -179,7 +185,6 @@
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     
-                    // Downscale large camera photos to optimal max dimension (1800px) for speed & memory
                     let width = img.width;
                     let height = img.height;
                     const maxDim = 1800;
@@ -238,7 +243,6 @@
             let trace = null;
             const potentialTraces = [];
             
-            // Capture 4 to 8 digit trace/seq/txn/stan numbers
             const traceLabelMatch = cleanedText.match(/(?:TRACE(?:\s*NO)?|SEQ(?:\s*NO)?|TXN(?:\s*NO)?|REF(?:\s*NO)?|STAN)[\s:.-]*([0-9]{4,8})\b/i);
             if (traceLabelMatch) {
                 const fullTrace = traceLabelMatch[1];
@@ -253,7 +257,6 @@
                 detectedDate = parseDate(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
             }
 
-            // Dynamic check based on configuration with fallback to default names
             const configAccount = (currentConfig.depositAccountNumber || '1020023476').replace(/\s+/g, '');
             const configOwner = normalize(currentConfig.depositAccountOwner || 'H G A M R GAMAGE');
             const ownerTokens = configOwner.split(' ').filter(t => t.length > 1);
@@ -289,7 +292,7 @@
         const getFamilyClusterKey = (id, familyLinks) => {
             const cluster = familyLinks[id];
             if (cluster && Array.isArray(cluster)) {
-                const uniqueCluster = [...new Set(cluster)].sort();
+                const uniqueCluster = [...new Set(cluster)].map(s => s.toString()).sort((a,b) => a.localeCompare(b, undefined, { numeric: true }));
                 if (uniqueCluster.length > 1) {
                     return 'FAM-' + uniqueCluster.join('_');
                 }
@@ -340,7 +343,6 @@
             const [isReviewMode, setIsReviewMode] = useState(false);
             const [selectedTokens, setSelectedTokens] = useState([]);
 
-            // Interactive Manual Bank Statement Lookup Inputs in Inspection Modal
             const [manualTraceSearch, setManualTraceSearch] = useState('');
             const [manualDescSearch, setManualDescSearch] = useState('');
 
@@ -349,18 +351,15 @@
             const [rotation, setRotation] = useState(0);
             const [scanningCardId, setScanningCardId] = useState(null);
 
-            // Image Adjuster / Preprocessing Tweak State
             const [imgContrast, setImgContrast] = useState(1.4);
             const [imgBrightness, setImgBrightness] = useState(0);
             const [imgThreshold, setImgThreshold] = useState(160);
             const [isRescanning, setIsRescanning] = useState(false);
             const [customPreviewUrl, setCustomPreviewUrl] = useState(null);
 
-            // Toast & Confirmation Modal
             const [toast, setToast] = useState(null);
             const [confirmDialog, setConfirmDialog] = useState(null);
 
-            // Secondary Audit Workflow State
             const [secondaryReportData, setSecondaryReportData] = useState([]);
             const [secondarySlips, setSecondarySlips] = useState([]);
             const [selectedSecondaryStudent, setSelectedSecondaryStudent] = useState(null);
@@ -368,7 +367,6 @@
             const [secondarySearchQuery, setSecondarySearchQuery] = useState('');
             const [secondaryStatus, setSecondaryStatus] = useState('Secondary Audit Engine Idle');
 
-            // Worker Pool & Queue Refs
             const schedulerRef = useRef(null);
             const workerPoolRef = useRef([]);
             const poolSizeRef = useRef(Math.min(navigator.hardwareConcurrency || 4, 4));
@@ -511,7 +509,7 @@
             };
 
             const analyzeStudent = (student, cluster, bankIndex, currentConfig, fullBankList, allStudentsMap, ocrData = null) => {
-                const penaltyDate = parseDate(currentConfig.lateLogicStart);
+                const penaltyDate = getStartOfDay(parseDate(currentConfig.lateLogicStart));
                 const { amount: slipAmount, trace: slipTrace, potentialTraces = [], detectedDate: slipDate, receiverMatched = false, accountMatched = false } = ocrData || {};
 
                 const indivGradeNum = parseGradeNumber(student.grade);
@@ -544,7 +542,7 @@
                     }
                 });
 
-                // 2. Normalized Full Name Match (handles initials and dotted names)
+                // 2. Normalized Full Name Match
                 if (candidateTxns.length === 0 && student.name && student.name !== 'Unknown Student' && student.name.length > 3) {
                     const cleanStudentName = normalize(student.name);
                     const nameParts = cleanStudentName.split(' ').filter(p => p.length > 1);
@@ -574,9 +572,10 @@
 
                 const totalPaid = candidateTxns.reduce((sum, t) => sum + t.amount, 0);
                 const dates = candidateTxns.map(t => t.date).filter(Boolean);
-                const effDate = dates.length > 0 ? new Date(Math.min(...dates)) : (slipDate || student.uploadTimestamp);
+                const rawEffDate = dates.length > 0 ? new Date(Math.min(...dates)) : (slipDate || student.uploadTimestamp);
+                const effDateStart = getStartOfDay(rawEffDate);
 
-                const isLateSubmission = effDate && penaltyDate && effDate >= penaltyDate;
+                const isLateSubmission = effDateStart && penaltyDate && effDateStart >= penaltyDate;
                 const requiredLateFee = isLateSubmission ? Number(currentConfig.lateFee || 500) : 0;
 
                 const indivTotalExpected = indivBaseFee + requiredLateFee;
@@ -584,7 +583,6 @@
 
                 let expectedBaseFee = indivBaseFee;
                 let totalExpected = indivTotalExpected;
-                let isFamilyPayment = cluster.length > 1;
 
                 if (cluster.length > 1 && (Math.abs(totalPaid - familyTotalExpected) < 1.0 || Math.abs(totalPaid - familyBaseFee) < 1.0)) {
                     expectedBaseFee = familyBaseFee;
@@ -640,7 +638,7 @@
                     grade: student.grade,
                     paid: totalPaid,
                     statusType,
-                    effDate,
+                    effDate: rawEffDate,
                     expected: totalExpected,
                     baseExpected: expectedBaseFee,
                     lateFeeAmount: requiredLateFee,
@@ -654,7 +652,7 @@
                     notes: student.notes,
                     month: normalizedMonth,
                     isFuturePayment,
-                    isFamilyPayment,
+                    isFamilyPayment: cluster.length > 1,
                     familyMembers: familyMembersInfo,
                     familyClusterKey: getFamilyClusterKey(student.token, processedData.familyLinks),
                     accountNameVerified: autoAccountNameVerified,
@@ -803,6 +801,14 @@
             };
 
             const openReview = (res) => { 
+                if (intervention && isReviewMode && intervention.id !== res.id) {
+                    const isNegativeOrRejection = /reject|invalid|wrong|not available|waived|excused/i.test(modalNote);
+                    if (!isNegativeOrRejection && (!intervention.accountNameVerified || !intervention.accountNumVerified)) {
+                        showToast("VERIFICATION LOCKED: Complete current card verification (tick both Name & Acc#) before switching!", "error");
+                        return;
+                    }
+                }
+
                 setIntervention(res); 
                 setModalNote(res.forensicNote || ""); 
                 setIsReviewMode(true);
@@ -818,23 +824,30 @@
                 if (!intervention) return;
 
                 const isNegativeOrRejection = /reject|invalid|wrong|not available|waived|excused/i.test(modalNote);
-                if (!isNegativeOrRejection && (!intervention.accountNameVerified || !intervention.accountNumVerified)) {
-                    showToast("Please visually tick Receiver Name & Account Number before confirming positive verification.", "error");
-                    return;
+                if (!isNegativeOrRejection) {
+                    if (!intervention.accountNameVerified || !intervention.accountNumVerified) {
+                        showToast("VERIFICATION LOCKED: You must visually tick BOTH 'Receiver Name' and 'Account Number' before confirming!", "error");
+                        return;
+                    }
                 }
 
-                const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
                 const updatedResults = results.map(r => r.id === intervention.id ? { 
                     ...r, 
                     forensicNote: modalNote, 
-                    accountNameVerified: intervention.accountNameVerified, 
-                    accountNumVerified: intervention.accountNumVerified, 
+                    accountNameVerified: !!intervention.accountNameVerified, 
+                    accountNumVerified: !!intervention.accountNumVerified, 
                     isAudited: true 
                 } : r);
+
                 setResults(updatedResults);
 
-                if (currentIdx !== -1 && currentIdx + 1 < filteredResults.length) {
-                    const nextItem = filteredResults[currentIdx + 1];
+                const currentIdx = filteredResults.findIndex(r => r.id === intervention.id);
+                let nextItem = null;
+                if (currentIdx !== -1) {
+                    nextItem = filteredResults.slice(currentIdx + 1).find(r => !r.isAudited) || filteredResults[currentIdx + 1];
+                }
+
+                if (nextItem) {
                     const updatedNext = updatedResults.find(r => r.id === nextItem.id) || nextItem;
                     setIntervention(updatedNext);
                     setModalNote(updatedNext.forensicNote || "");
@@ -854,10 +867,7 @@
                 const targetIdx = currentIdx + direction;
                 if (targetIdx >= 0 && targetIdx < filteredResults.length) {
                     const target = filteredResults[targetIdx];
-                    setIntervention(target);
-                    setModalNote(target.forensicNote || "");
-                    setManualTraceSearch('');
-                    setManualDescSearch('');
+                    openReview(target);
                 }
             };
 
@@ -965,18 +975,18 @@
 
                             if (rows.length === 0) continue;
 
-                            let headerRowIdx = rows.findIndex(r => r.some(c => c && /student name|name|student id|token|transaction date|credit|family id/i.test(c.toString())));
+                            let headerRowIdx = rows.findIndex(r => r.some(c => c && /\b(student name|name|student id|token|transaction date|credit|family id)\b/i.test(c.toString())));
                             if (headerRowIdx === -1) headerRowIdx = 0;
 
                             const headers = (rows[headerRowIdx] || []).map(h => (h || "").toString().toLowerCase().trim());
                             const dataRows = rows.slice(headerRowIdx + 1);
 
-                            const isMasterCSV = name.includes('master') || headers.some(h => h.includes('student name') || h.includes('student id') || h.includes('token'));
-                            const isBankCSV = name.includes('bank') || headers.some(h => h.includes('transaction date') || h.includes('credit') || h.includes('debit'));
+                            const isMasterCSV = name.includes('master') || headers.some(h => h.includes('student name') || h.includes('student id') || h === 'token' || h.endsWith('token'));
+                            const isBankCSV = name.includes('bank') || headers.some(h => h.includes('transaction date') || h.includes('credit') || h.includes('debit') || h.includes('particular'));
                             const isFamilyCSV = name.includes('family') || headers.some(h => h.includes('family id') || h.includes('member ids') || h.includes('cluster'));
 
                             if (isMasterCSV) {
-                                const idIdx = headers.findIndex(h => h.includes('id') || h.includes('token')) !== -1 ? headers.findIndex(h => h.includes('id') || h.includes('token')) : 2;
+                                const idIdx = headers.findIndex(h => /\b(id|token)\b/i.test(h)) !== -1 ? headers.findIndex(h => /\b(id|token)\b/i.test(h)) : 2;
                                 const nameIdx = headers.findIndex(h => h.includes('name')) !== -1 ? headers.findIndex(h => h.includes('name')) : 3;
                                 const gradeIdx = headers.findIndex(h => h.includes('grade')) !== -1 ? headers.findIndex(h => h.includes('grade')) : 1;
                                 const dateIdx = headers.findIndex(h => h.includes('timestamp') || h.includes('date')) !== -1 ? headers.findIndex(h => h.includes('timestamp') || h.includes('date')) : 0;
@@ -1026,7 +1036,6 @@
                                 found.bank = true;
                             } else if (isFamilyCSV) {
                                 dataRows.forEach(r => {
-                                    // Extract all digit clusters from the row
                                     const rowString = r.join(' ');
                                     const cluster = (rowString.match(/\b\d{2,6}\b/g) || []).map(s => s.trim());
                                     if (cluster.length > 1) {
@@ -1195,16 +1204,13 @@
 
                 const wb = XLSX.utils.book_new();
 
-                // 1. Primary Sheet: Master Ledger of All Students
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(results.map(mapRecordToExportRow)), "Master Ledger");
 
-                // 2. Future Payments Sheet
                 const futurePayments = results.filter(r => r.isFuturePayment);
                 if (futurePayments.length > 0) {
                     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(futurePayments.map(mapRecordToExportRow)), "Future Payments");
                 }
 
-                // 3. Category Breakdown Tabs (with collision prevention)
                 const addedTokens = new Set();
                 standardComments.forEach(stdComment => {
                     const matchingRecords = results.filter(r => !r.isFuturePayment && r.forensicNote?.trim().toLowerCase().startsWith(stdComment.toLowerCase()));
@@ -1220,7 +1226,6 @@
                     }
                 });
 
-                // 4. Custom/Other Remarks Tab
                 const customNotesRecords = results.filter(r => !r.isFuturePayment && !addedTokens.has(r.id) && r.forensicNote && r.forensicNote.trim().length > 0);
                 if (customNotesRecords.length > 0) {
                     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customNotesRecords.map(mapRecordToExportRow)), "Custom Remarks");
@@ -1424,7 +1429,7 @@
                         {/* Sidebar Configuration & Asset Management */}
                         <aside className="lg:col-span-4 space-y-6">
                             
-                            {/* Data Assets Upload - Positioned at top of Sidebar */}
+                            {/* Data Assets Upload */}
                             <div className="glass-panel p-6 rounded-3xl">
                                 <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                                     <i className="fas fa-database text-indigo-400"></i> Data Assets
@@ -1467,7 +1472,7 @@
                                 </div>
                             </div>
 
-                            {/* Rules & Fees Setup - Moved directly under Data Assets */}
+                            {/* Rules & Fees Setup */}
                             <div className="glass-panel p-6 rounded-3xl space-y-4">
                                 <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
                                     <i className="fas fa-sliders-h text-indigo-400"></i> Rules & Fees Setup
@@ -1621,7 +1626,7 @@
                                 )}
                             </div>
 
-                            {/* Results Table / Cards (Grouped Sequentially by Family) */}
+                            {/* Results Table / Cards */}
                             <div className="glass-panel rounded-3xl overflow-hidden min-h-[500px] flex flex-col">
                                 <div className="p-3 bg-slate-900/80 border-b border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
@@ -1637,7 +1642,6 @@
 
                                         return (
                                             <div key={res.id} className="space-y-1">
-                                                {/* Visual Cluster Separator for Family Groups */}
                                                 {res.isFamilyPayment && (!prevRes || prevRes.familyClusterKey !== res.familyClusterKey) && (
                                                     <div className="flex items-center gap-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">
                                                         <i className="fas fa-users-rectangle text-purple-400"></i>
@@ -1720,7 +1724,6 @@
                                                                 <p className="text-xs text-slate-400 mt-0.5 truncate">{res.forensicNote}</p>
                                                             )}
 
-                                                            {/* Deduplicated Line-by-Line Family Member Breakdown Note */}
                                                             {res.familyMembers && res.familyMembers.length > 1 && (
                                                                 <div className="mt-2 p-2 bg-purple-950/40 border border-purple-800/40 rounded-xl text-[11px] font-mono space-y-1">
                                                                     <div className="text-[9px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1">
@@ -1901,7 +1904,7 @@
                         )}
                     </div>
 
-                    {/* Inspection Modal with Image Adjusters, Verification Ticks, Manual Bank Lookup, Family Links & Comment Editor */}
+                    {/* Inspection Modal */}
                     {intervention && (
                         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
                             
@@ -1928,7 +1931,7 @@
                                             </div>
                                         </div>
 
-                                        {/* Family Cluster Navigation in Inspection Modal */}
+                                        {/* Family Cluster Links */}
                                         {intervention.familyMembers && intervention.familyMembers.length > 1 && (
                                             <div className="bg-purple-950/40 p-3 rounded-xl border border-purple-800/50 space-y-2">
                                                 <h5 className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
@@ -2100,7 +2103,7 @@
                                     </div>
                                 </div>
 
-                                {/* Right Side: Visual Slip Viewer & Interactive Image Controls / Adjusters */}
+                                {/* Right Side: Visual Slip Viewer & Interactive Controls */}
                                 <div className="md:w-7/12 p-6 flex flex-col bg-slate-900/40">
                                     <div className="flex-1 bg-slate-950 rounded-2xl overflow-hidden relative border border-slate-800 mb-3 flex items-center justify-center">
                                         {currentSlip ? (
@@ -2134,7 +2137,7 @@
                                         )}
                                     </div>
 
-                                    {/* Restored OCR Preprocessing & Image Tweaker Controls Panel */}
+                                    {/* OCR Preprocessing & Tweaker Controls */}
                                     {currentSlip && !isPdfFile(currentSlip) && (
                                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 mb-3 space-y-2">
                                             <div className="flex items-center justify-between">
