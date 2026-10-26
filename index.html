@@ -1,95 +1,114 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AuditCore Pro - Smart Vision v23.0</title>
-
-    <!-- Core React & Babel -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- Styling -->
+    
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <!-- Utilities -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM (Production Builds for Stability) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel Compiler for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- SheetJS / XLSX for Spreadsheet Import & Multi-tab Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- html2canvas for Exporting Advisory Notice Cards -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
 
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
+    <!-- Tesseract OCR Engine -->
+    <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b0f19; color: #f8fafc; }
-        .font-mono { font-family: 'JetBrains Mono', monospace; }
-
-        @keyframes pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-        .animate-pulse-subtle { animation: pulse-subtle 2s infinite ease-in-out; }
-
-        .glass-panel { background: rgba(18, 24, 38, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
-        .glass-card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.05); }
-        .hover-card { transition: all 0.2s ease-in-out; }
-        .hover-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -10px rgba(0,0,0,0.6); border-color: rgba(99, 102, 241, 0.4); }
-
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #090d16;
+            color: #f1f5f9;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+        .hover-card {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .hover-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.2);
+        }
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d16;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
     </style>
 </head>
-<body class="antialiased selection:bg-indigo-500 selection:text-white">
+<body class="min-h-screen antialiased selection:bg-indigo-500 selection:text-white">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo, useCallback } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        const DEFAULT_STANDARD_COMMENTS = [
-            'Late Fees Not Paid',
-            'Not Available in Bank Statement',
-            'VERIFIED: Deposit Confirmed',
-            'EXCUSED: Late Fee Waived',
-            'FLAGGED: Partial Amount',
-            'REJECTED: Invalid Receipt',
-            'DUPLICATE: Double Submission',
-            'Wrong Slip Attached',
-            'Future Payments'
-        ];
+        // --- Helper Utilities ---
+        const normalize = (str) => (str || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
 
-        const normalize = (str) => (str || "").toString().toUpperCase().trim().replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ');
+        const parseDate = (val) => {
+            if (!val) return null;
+            if (val instanceof Date) return val;
+            const str = val.toString().trim();
+            
+            // Format DD/MM/YYYY or DD.MM.YYYY
+            const ddmmyyyy = str.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})$/);
+            if (ddmmyyyy) {
+                return new Date(parseInt(ddmmyyyy[3]), parseInt(ddmmyyyy[2]) - 1, parseInt(ddmmyyyy[1]));
+            }
 
-        const getTodayDDMMYYYY = () => {
-            const today = new Date();
-            const dd = String(today.getDate()).padStart(2, '0');
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const yyyy = today.getFullYear();
-            return `${dd}/${mm}/${yyyy}`;
+            // ISO / standard date parsing
+            const parsed = new Date(str);
+            return isNaN(parsed.getTime()) ? null : parsed;
         };
 
         const formatDDMMYYYYtoYYYYMMDD = (str) => {
             if (!str) return '';
-            const parts = str.toString().trim().split(/[\/\-.]/);
+            const parts = str.split('/');
             if (parts.length === 3) {
                 const [d, m, y] = parts;
-                if (d && m && y && y.length === 4) {
-                    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-                }
+                return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
             }
             return '';
         };
 
         const formatYYYYMMDDtoDDMMYYYY = (str) => {
             if (!str) return '';
-            const parts = str.toString().trim().split('-');
+            const parts = str.split('-');
             if (parts.length === 3) {
                 const [y, m, d] = parts;
                 return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
@@ -97,662 +116,405 @@
             return '';
         };
 
-        const normalizeMonthString = (raw) => {
-            if (!raw) return '';
-            let str = raw.toString().trim();
-            if (!str) return '';
-
-            const excelAugPattern = /^(\d{2})[-/\s]?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i;
-            const excelAugPattern2 = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-/\s]?(\d{2})$/i;
-
-            const monthMap = {
-                jan: 'January', feb: 'February', mar: 'March', apr: 'April',
-                may: 'May', jun: 'June', jul: 'July', aug: 'August',
-                sep: 'September', oct: 'October', nov: 'November', dec: 'December'
-            };
-
-            let match1 = str.match(excelAugPattern);
-            if (match1) {
-                let yy = match1[1];
-                let mShort = match1[2].toLowerCase();
-                let fullYear = yy.length === 2 ? `20${yy}` : yy;
-                let fullMonth = monthMap[mShort] || mShort;
-                return `${fullMonth} ${fullYear}`;
-            }
-
-            let match2 = str.match(excelAugPattern2);
-            if (match2) {
-                let mShort = match2[1].toLowerCase();
-                let yy = match2[2];
-                let fullYear = yy.length === 2 ? `20${yy}` : yy;
-                let fullMonth = monthMap[mShort] || mShort;
-                return `${fullMonth} ${fullYear}`;
-            }
-
-            for (const [short, full] of Object.entries(monthMap)) {
-                if (str.toLowerCase().includes(short)) {
-                    const yearMatch = str.match(/\b(20\d{2}|\d{2})\b/);
-                    let year = yearMatch ? (yearMatch[1].length === 2 ? `20${yearMatch[1]}` : yearMatch[1]) : new Date().getFullYear().toString();
-                    return `${full} ${year}`;
-                }
-            }
-
-            return str;
-        };
-
-        const parseDate = (val) => {
-            if (!val) return null;
-            if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-            if (typeof val === 'number') return new Date(Math.round((val - 25569) * 86400 * 1000));
-            const cleanStr = val.toString().trim();
-
-            const isoMatch = cleanStr.match(/^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])/);
-            if (isoMatch) {
-                const y = parseInt(isoMatch[1], 10);
-                const m = parseInt(isoMatch[2], 10) - 1;
-                const d = parseInt(isoMatch[3], 10);
-                const dObj = new Date(y, m, d);
-                return isNaN(dObj.getTime()) ? null : dObj;
-            }
-
-            const dmyMatch = cleanStr.match(/^(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](\d{2,4})/);
-            if (dmyMatch) {
-                let d = parseInt(dmyMatch[1], 10);
-                let m = parseInt(dmyMatch[2], 10) - 1;
-                let y = parseInt(dmyMatch[3], 10);
-                if (y < 100) y += 2000;
-                const dObj = new Date(y, m, d);
-                return isNaN(dObj.getTime()) ? null : dObj;
-            }
-
-            const direct = new Date(cleanStr);
-            return isNaN(direct.getTime()) ? null : direct;
-        };
-
-        const getStartOfDay = (d) => {
-            if (!d) return null;
-            const dt = new Date(d);
-            if (isNaN(dt.getTime())) return null;
-            dt.setHours(0, 0, 0, 0);
-            return dt;
-        };
-
-        const preprocessImage = (imageSource, customParams = {}) => {
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.crossOrigin = 'Anonymous';
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    
-                    let width = img.width;
-                    let height = img.height;
-                    const maxDim = 1800;
-                    if (width > maxDim || height > maxDim) {
-                        if (width > height) {
-                            height = Math.round((height * maxDim) / width);
-                            width = maxDim;
-                        } else {
-                            width = Math.round((width * maxDim) / height);
-                            height = maxDim;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = imgData.data;
-
-                    let contrast = customParams.contrast !== undefined ? customParams.contrast : 1.4; 
-                    let brightness = customParams.brightness !== undefined ? customParams.brightness : 0;
-                    let thresholdUpper = customParams.thresholdUpper !== undefined ? customParams.thresholdUpper : 160;
-                    let thresholdLower = customParams.thresholdLower !== undefined ? customParams.thresholdLower : 85;
-
-                    let factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
-
-                    for (let i = 0; i < data.length; i += 4) {
-                        let avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                        avg = avg + brightness;
-                        let color = factor * (avg - 128) + 128;
-                        color = color > thresholdUpper ? 255 : (color < thresholdLower ? 0 : color); 
-                        data[i] = color;
-                        data[i + 1] = color;
-                        data[i + 2] = color;
-                    }
-                    ctx.putImageData(imgData, 0, 0);
-                    resolve(canvas.toDataURL('image/jpeg', 0.9));
-                };
-                img.onerror = () => resolve(imageSource);
-                img.src = imageSource;
-            });
-        };
-
-        const extractSlipData = (text, currentConfig = {}) => {
-            if (!text) return { amount: null, trace: null, potentialTraces: [], detectedDate: null, receiverMatched: false, accountMatched: false };
-
-            const cleanedText = text.replace(/([0-9])O([0-9])/gi, '$10$2')
-                                   .replace(/([0-9])l([0-9])/gi, '$11$2');
-
-            const amountRegex = /(?:Rs\.?|LKR|TOTAL|AMT)?\s*([1-9][0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)\b/gi;
-            const matches = [...cleanedText.matchAll(amountRegex)];
-            const candidates = matches.map(m => parseFloat(m[1].replace(/,/g, ''))).filter(n => n >= 500 && n <= 250000);
-            const amount = candidates.length > 0 ? Math.max(...candidates) : null;
-
-            let trace = null;
-            const potentialTraces = [];
-            
-            const traceLabelMatch = cleanedText.match(/(?:TRACE(?:\s*NO)?|SEQ(?:\s*NO)?|TXN(?:\s*NO)?|REF(?:\s*NO)?|STAN)[\s:.-]*([0-9]{4,8})\b/i);
-            if (traceLabelMatch) {
-                const fullTrace = traceLabelMatch[1];
-                trace = fullTrace.length > 4 ? fullTrace.slice(-4) : fullTrace;
-                potentialTraces.push(trace);
-                if (fullTrace !== trace) potentialTraces.push(fullTrace);
-            }
-
-            let detectedDate = null;
-            const dateMatch = cleanedText.match(/(\d{1,2})[/\.-](\d{1,2})[/\.-](\d{2,4})/);
-            if (dateMatch) {
-                detectedDate = parseDate(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
-            }
-
-            const configAccount = (currentConfig.depositAccountNumber || '1020023476').replace(/\s+/g, '');
-            const configOwner = normalize(currentConfig.depositAccountOwner || 'H G A M R GAMAGE');
-            const ownerTokens = configOwner.split(' ').filter(t => t.length > 1);
-
-            const receiverMatched = /H\s*G\s*A\s*M\s*R\s*GAMAGE|GAMAGE\s*HGAMR|MICHAEL\s*RANUKA\s*GAMAGE/i.test(cleanedText) ||
-                (ownerTokens.length > 0 && ownerTokens.every(tok => cleanedText.toUpperCase().includes(tok)));
-
-            const accountMatched = new RegExp(configAccount).test(cleanedText.replace(/\s+/g, '')) || /1020023476/.test(cleanedText.replace(/\s+/g, ''));
-
-            return { amount, trace, potentialTraces, detectedDate, receiverMatched, accountMatched };
-        };
-
-        const extractIdFromSlip = (file) => {
-            const fileNameMatch = file.name.match(/\b\d{2,6}\b/);
-            const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "";
-            const isGenericFolder = /grade|class|slip|receipt|august|september|october|november|december|january|february|march|april|may|june|july|audit|photo|image/i.test(folder);
-            if (fileNameMatch) return fileNameMatch[0];
-            if (folder && !isGenericFolder) {
-                const folderMatch = folder.match(/\b\d{2,6}\b/);
-                if (folderMatch) return folderMatch[0];
-            }
-            return file.name.match(/\d+/)?.[0] || "";
-        };
-
-        const DB_KEY = 'audit_core_db_v23';
-
         const parseGradeNumber = (gradeStr) => {
             if (!gradeStr) return 1;
             const match = gradeStr.toString().match(/\d+/);
             return match ? parseInt(match[0], 10) : 1;
         };
 
-        const getFamilyClusterKey = (id, familyLinks) => {
-            const cluster = familyLinks[id];
-            if (cluster && Array.isArray(cluster)) {
-                const uniqueCluster = [...new Set(cluster)].map(s => s.toString()).sort((a,b) => a.localeCompare(b, undefined, { numeric: true }));
-                if (uniqueCluster.length > 1) {
-                    return 'FAM-' + uniqueCluster.join('_');
-                }
-            }
-            return 'IND-' + id;
+        const extractIdFromSlip = (file) => {
+            const name = file.name;
+            const match = name.match(/\b\d{2,6}\b/);
+            return match ? match[0] : name.split('.')[0];
         };
 
-        const isPdfFile = (slip) => {
-            if (!slip) return false;
-            const typeStr = (slip.type || '').toLowerCase();
-            const nameStr = (slip.name || '').toLowerCase();
-            return typeStr.includes('pdf') || nameStr.endsWith('.pdf');
+        const isPdfFile = (slip) => slip && (slip.name.toLowerCase().endsWith('.pdf') || slip.type === 'application/pdf');
+
+        // Advanced Image Preprocessing Canvas Function
+        const preprocessImage = (imgSrc, options = {}) => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+
+                    // Draw original
+                    ctx.drawImage(img, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imgData.data;
+
+                    const contrast = options.contrast || 1.4; // 1.0 - 3.0
+                    const brightness = options.brightness || 0; // -100 to 100
+                    const thresholdUpper = options.thresholdUpper || 160;
+
+                    for (let i = 0; i < data.length; i += 4) {
+                        // Greyscale
+                        let avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                        
+                        // Brightness
+                        avg += brightness;
+
+                        // Contrast
+                        avg = (avg - 128) * contrast + 128;
+
+                        // Binarization threshold
+                        const finalVal = avg > thresholdUpper ? 255 : (avg < 50 ? 0 : avg);
+
+                        data[i] = finalVal;
+                        data[i + 1] = finalVal;
+                        data[i + 2] = finalVal;
+                    }
+
+                    ctx.putImageData(imgData, 0, 0);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.onerror = (err) => reject(err);
+                img.src = imgSrc;
+            });
+        };
+
+        const extractSlipData = (ocrText, config) => {
+            let trace = null;
+            let accountVerified = false;
+            let nameVerified = false;
+
+            if (!ocrText) return { trace, accountVerified, nameVerified };
+
+            const textUpper = ocrText.toUpperCase();
+
+            // Match TRACE or Ref sequence
+            const traceMatches = textUpper.match(/\b(TRACE|REF|SEQ|TXN|TRANS|NO|ID)?[:\.\s]*([0-9]{4,10})\b/gi);
+            if (traceMatches && traceMatches.length > 0) {
+                const digitsOnly = traceMatches[0].replace(/[^0-9]/g, '');
+                if (digitsOnly.length >= 4) trace = digitsOnly;
+            }
+
+            // Account and Owner verification logic
+            if (config.depositAccountNumber && textUpper.includes(config.depositAccountNumber.replace(/\s+/g, ''))) {
+                accountVerified = true;
+            }
+            if (config.depositAccountOwner && textUpper.includes(config.depositAccountOwner.toUpperCase())) {
+                nameVerified = true;
+            }
+
+            return { trace, accountVerified, nameVerified };
+        };
+
+        const analyzeStudent = (student, cluster, bankList, config, allBankList, studentMap, slipData = {}) => {
+            const studentId = student.token;
+            const gradeNum = parseGradeNumber(student.grade);
+            const baseFee = config.gradeFees[gradeNum] || (gradeNum === 1 ? 3500 : 3000);
+
+            // Family cluster handling
+            const isFamily = cluster && cluster.length > 1;
+            const familyMembers = isFamily ? cluster.map(id => {
+                const s = studentMap[id] || { name: `Student #${id}`, grade: 'Grade 1' };
+                const g = parseGradeNumber(s.grade);
+                const fee = config.gradeFees[g] || (g === 1 ? 3500 : 3000);
+                return { token: id, name: s.name, grade: s.grade, baseFee: fee };
+            }) : null;
+
+            const familyBaseTotal = isFamily ? familyMembers.reduce((sum, m) => sum + m.baseFee, 0) : baseFee;
+
+            // Late Fee Logic check
+            let isLate = false;
+            if (config.lateLogicStart && student.uploadTimestamp) {
+                const cutoffDate = parseDate(config.lateLogicStart);
+                if (cutoffDate && student.uploadTimestamp > cutoffDate) {
+                    isLate = true;
+                }
+            }
+
+            const latePenalty = isLate ? config.lateFee : 0;
+            const totalExpected = familyBaseTotal + latePenalty;
+
+            // Match with Bank Credits
+            const cleanId = studentId.toString();
+            const matchedBankTxns = bankList.filter(txn => {
+                const desc = txn.desc.toUpperCase();
+                return desc.includes(cleanId) || (slipData.trace && desc.includes(slipData.trace));
+            });
+
+            const totalPaid = matchedBankTxns.reduce((sum, t) => sum + t.amount, 0);
+
+            let statusType = 'unmatched';
+            let forensicNote = '';
+
+            if (matchedBankTxns.length > 0) {
+                if (Math.abs(totalPaid - totalExpected) < 1.0) {
+                    statusType = 'confirmed';
+                    forensicNote = `VERIFIED: Full Payment Confirmed (Rs. ${totalPaid})`;
+                } else if (isLate && Math.abs(totalPaid - familyBaseTotal) < 1.0) {
+                    statusType = 'late_fee_missing';
+                    forensicNote = `DEFICIT: Base Fee Paid (Rs. ${totalPaid}), missing Late Penalty (Rs. ${config.lateFee})`;
+                } else {
+                    statusType = 'odd';
+                    forensicNote = `DISCREPANCY: Paid Rs. ${totalPaid} vs Expected Rs. ${totalExpected}`;
+                }
+            } else {
+                forensicNote = 'FLAGGED: No corresponding bank deposit found for Token ID';
+            }
+
+            return {
+                id: studentId,
+                folder: student.name,
+                grade: student.grade,
+                link: student.link,
+                month: student.month,
+                paymentInfo: student.paymentInfo,
+                notes: student.notes,
+                effDate: student.uploadTimestamp,
+                paid: totalPaid,
+                baseExpected: familyBaseTotal,
+                lateFeeAmount: latePenalty,
+                expected: totalExpected,
+                isLateSubmission: isLate,
+                statusType: statusType,
+                forensicNote: forensicNote,
+                matches: matchedBankTxns,
+                isFamilyPayment: isFamily,
+                familyMembers: familyMembers,
+                familyClusterKey: isFamily ? cluster.sort().join('_') : studentId,
+                ocrTrace: slipData.trace || null,
+                accountNameVerified: slipData.nameVerified || false,
+                accountNumVerified: slipData.accountVerified || false,
+                isAudited: false
+            };
         };
 
         const App = () => {
+            // Configuration & Setup State
             const [config, setConfig] = useState({
-                gradeFees: { 1: 3500, 2: 3000, 3: 3000, 4: 3000, 5: 3000, 6: 3000, 7: 3000, 8: 3000, 9: 3000, 10: 3000, 11: 3000 },
+                lateLogicStart: '10/10/2026',
                 lateFee: 500,
-                lateLogicStart: getTodayDDMMYYYY(),
-                auditMonth: 'August 2026',
+                auditMonth: 'October 2026',
                 depositAccountOwner: 'H G A M R Gamage',
-                depositAccountNumber: '1020023476'
+                depositAccountNumber: '1020023476',
+                gradeFees: {
+                    1: 3500, 2: 3000, 3: 3000, 4: 3000, 5: 3000,
+                    6: 3000, 7: 3000, 8: 3000, 9: 3000, 10: 3000, 11: 3000
+                }
             });
 
-            const [standardComments, setStandardComments] = useState(DEFAULT_STANDARD_COMMENTS);
-            const [newCommentInput, setNewCommentInput] = useState("");
-            const [showCommentEditor, setShowCommentEditor] = useState(false);
-
-            const [processedData, setProcessedData] = useState({ 
-                studentMap: {}, 
-                bankList: [], 
-                familyLinks: {}, 
-                receipts: [] 
+            // Master Processed Data Engine State
+            const [processedData, setProcessedData] = useState({
+                studentMap: {},
+                bankList: [],
+                familyLinks: {},
+                receipts: []
             });
-            const [assetStatus, setAssetStatus] = useState({ master: false, bank: false, family: false, slips: false });
 
-            // UI State
-            const [ocrProgress, setOcrProgress] = useState({ total: 0, processed: 0, text: "Idle", isRunning: false });
+            // Assets Loading Indicators
+            const [assetStatus, setAssetStatus] = useState({
+                master: false,
+                bank: false,
+                family: false,
+                slips: false
+            });
+
+            // Audit UI & Results State
             const [results, setResults] = useState([]);
             const [isAuditing, setIsAuditing] = useState(false);
-            const [status, setStatus] = useState("Engine Ready");
-            const [intervention, setIntervention] = useState(null); 
-            const [modalNote, setModalNote] = useState("");
+            const [status, setStatus] = useState("Ready for dataset upload");
+            const [toast, setToast] = useState(null);
+            const [confirmDialog, setConfirmDialog] = useState(null);
+            const [lastSaved, setLastSaved] = useState(null);
+
+            // Filters & Selection
             const [activeFilter, setActiveFilter] = useState('all');
             const [gradeFilter, setGradeFilter] = useState('all');
             const [searchQuery, setSearchQuery] = useState('');
-            const [lastSaved, setLastSaved] = useState(null);
-            const [isReviewMode, setIsReviewMode] = useState(false);
             const [selectedTokens, setSelectedTokens] = useState([]);
 
-            const [manualTraceSearch, setManualTraceSearch] = useState('');
-            const [manualDescSearch, setManualDescSearch] = useState('');
-
+            // Inspection & Manual Review Modal State
+            const [intervention, setIntervention] = useState(null);
+            const [isReviewMode, setIsReviewMode] = useState(false);
+            const [modalNote, setModalNote] = useState('');
+            const [scanningCardId, setScanningCardId] = useState(null);
             const [fullscreenSlip, setFullscreenSlip] = useState(null);
             const [zoomLevel, setZoomLevel] = useState(1);
             const [rotation, setRotation] = useState(0);
-            const [scanningCardId, setScanningCardId] = useState(null);
 
+            // Image Adjuster & Preprocessor States for Modal
             const [imgContrast, setImgContrast] = useState(1.4);
             const [imgBrightness, setImgBrightness] = useState(0);
             const [imgThreshold, setImgThreshold] = useState(160);
-            const [isRescanning, setIsRescanning] = useState(false);
             const [customPreviewUrl, setCustomPreviewUrl] = useState(null);
+            const [isRescanning, setIsRescanning] = useState(false);
 
-            const [toast, setToast] = useState(null);
-            const [confirmDialog, setConfirmDialog] = useState(null);
+            // Comment Editor State
+            const [standardComments, setStandardComments] = useState([
+                "VERIFIED: Deposit Confirmed",
+                "EXCUSED: Late Fee Waived",
+                "REJECTED: Invalid Payment Receipt",
+                "PENDING: Bank Trace Required",
+                "DUPLICATE: Receipt Already Used"
+            ]);
+            const [showCommentEditor, setShowCommentEditor] = useState(false);
+            const [newCommentInput, setNewCommentInput] = useState('');
 
+            // Manual Bank Lookup inside Modal
+            const [manualTraceSearch, setManualTraceSearch] = useState('');
+            const [manualDescSearch, setManualDescSearch] = useState('');
+
+            // Secondary Workflow State
             const [secondaryReportData, setSecondaryReportData] = useState([]);
             const [secondarySlips, setSecondarySlips] = useState([]);
             const [selectedSecondaryStudent, setSelectedSecondaryStudent] = useState(null);
-            const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('all');
             const [secondarySearchQuery, setSecondarySearchQuery] = useState('');
-            const [secondaryStatus, setSecondaryStatus] = useState('Secondary Audit Engine Idle');
+            const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('all');
+            const [secondaryStatus, setSecondaryStatus] = useState('Idle');
 
+            // Vision OCR Scheduler & Cache Refs
             const schedulerRef = useRef(null);
-            const workerPoolRef = useRef([]);
-            const poolSizeRef = useRef(Math.min(navigator.hardwareConcurrency || 4, 4));
+            const poolSizeRef = useRef(0);
+            const cacheRef = useRef({});
             const captureAreaRef = useRef(null);
             const parentCardRef = useRef(null);
-            const saveTimeoutRef = useRef(null);
-            const cacheRef = useRef({});
-            const bankIndexRef = useRef(new Map());
 
+            const [ocrProgress, setOcrProgress] = useState({ isRunning: false, processed: 0, total: 0, text: '' });
+
+            // Toast helper
             const showToast = (message, type = 'info') => {
                 setToast({ message, type });
                 setTimeout(() => setToast(null), 4000);
             };
 
-            useEffect(() => {
-                loadFromDB();
-                initEngine();
-                requestWakeLock();
-                return () => { terminatePool(); };
-            }, []);
-
-            const requestWakeLock = async () => {
-                if ('wakeLock' in navigator) {
-                    try { await navigator.wakeLock.request('screen'); } catch (e) {}
-                }
-            };
-
-            useEffect(() => {
-                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                saveTimeoutRef.current = setTimeout(() => saveToDB(), 1500); 
-                return () => clearTimeout(saveTimeoutRef.current);
-            }, [results, config, processedData, standardComments]);
-
-            useEffect(() => {
-                if (!intervention) {
-                    setCustomPreviewUrl(null);
-                    return;
-                }
-                const slip = processedData.receipts.find(r => r.id === intervention.id);
-                if (slip && !isPdfFile(slip)) {
-                    preprocessImage(slip.url, { contrast: imgContrast, brightness: imgBrightness, thresholdUpper: imgThreshold })
-                        .then(url => setCustomPreviewUrl(url));
-                }
-            }, [intervention, imgContrast, imgBrightness, imgThreshold, processedData.receipts]);
-
-            const terminatePool = async () => {
-                if (schedulerRef.current) {
-                    await schedulerRef.current.terminate();
-                    schedulerRef.current = null;
-                }
-                workerPoolRef.current = [];
-            };
-
-            const initEngine = async () => {
-                try {
-                    await terminatePool();
-                    const scheduler = Tesseract.createScheduler();
-                    const poolCount = poolSizeRef.current;
-                    for (let i = 0; i < poolCount; i++) {
-                        const worker = await Tesseract.createWorker('eng');
-                        scheduler.addWorker(worker);
-                        workerPoolRef.current.push(worker);
-                    }
-                    schedulerRef.current = scheduler;
-                    setStatus(`Engine Ready (${poolCount} Multi-threaded Workers Active)`);
-                } catch (e) { setStatus("OCR Engine Init Error"); }
-            };
-
-            const saveToDB = async () => {
-                try {
-                    const payload = {
-                        config, results, standardComments,
-                        data: { studentMap: processedData.studentMap, bankList: processedData.bankList, familyLinks: processedData.familyLinks },
-                        status: { master: assetStatus.master, bank: assetStatus.bank, family: assetStatus.family, slips: false },
-                        timestamp: new Date().getTime(),
-                        ocrCache: cacheRef.current
-                    };
-                    if (window.idbKeyval) {
-                        await idbKeyval.set(DB_KEY, payload);
-                        setLastSaved(new Date());
-                    }
-                } catch (e) { console.error("Save Error", e); }
-            };
-
-            const loadFromDB = async () => {
-                try {
-                    if (!window.idbKeyval) return;
-                    const saved = await idbKeyval.get(DB_KEY);
-                    if (saved) {
-                        setConfig(saved.config || config);
-                        setResults(saved.results || []);
-                        if (saved.standardComments && Array.isArray(saved.standardComments)) {
-                            const merged = [...saved.standardComments];
-                            DEFAULT_STANDARD_COMMENTS.forEach(sc => {
-                                if (!merged.includes(sc)) merged.push(sc);
-                            });
-                            setStandardComments(merged);
-                        }
-                        setProcessedData(prev => ({
-                            ...prev,
-                            studentMap: saved.data?.studentMap || {},
-                            bankList: saved.data?.bankList || [],
-                            familyLinks: saved.data?.familyLinks || {}
-                        }));
-                        setAssetStatus(saved.status || assetStatus);
-                        if (saved.ocrCache) cacheRef.current = saved.ocrCache;
-                        setStatus(saved.results?.length > 0 ? "Session Restored from Storage" : "Engine Ready");
-                    }
-                } catch (e) { console.error("Load Error", e); }
-            };
-
+            // Dynamic Comment Handlers
             const handleAddStandardComment = () => {
+                if (!newCommentInput.trim()) return;
                 const trimmed = newCommentInput.trim();
-                if (!trimmed) return;
-                if (standardComments.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
-                    return showToast("This comment already exists in the list.", "error");
+                if (!standardComments.includes(trimmed)) {
+                    setStandardComments([...standardComments, trimmed]);
+                    setNewCommentInput('');
+                    showToast("New standard comment added successfully!", "success");
                 }
-                const updated = [...standardComments, trimmed];
-                setStandardComments(updated);
-                setNewCommentInput("");
-                setModalNote(trimmed);
-                showToast(`Added comment "${trimmed}" to preset list!`, "success");
             };
 
             const handleRemoveStandardComment = (commentToRemove) => {
-                const updated = standardComments.filter(c => c !== commentToRemove);
-                setStandardComments(updated);
-                showToast(`Removed comment from list.`, "info");
+                setStandardComments(standardComments.filter(c => c !== commentToRemove));
+                showToast("Comment tag removed", "info");
             };
 
+            // Initialize OCR Engine Pool
+            const initEngine = async () => {
+                try {
+                    if (schedulerRef.current) return;
+                    setStatus("Initializing Tesseract OCR Workers...");
+                    const scheduler = Tesseract.createScheduler();
+                    const worker1 = await Tesseract.createWorker('eng');
+                    const worker2 = await Tesseract.createWorker('eng');
+                    scheduler.addWorker(worker1);
+                    scheduler.addWorker(worker2);
+                    schedulerRef.current = scheduler;
+                    poolSizeRef.current = 2;
+                    setStatus("Tesseract OCR Vision Engine Active (2 Workers Ready)");
+                } catch (e) {
+                    console.error("OCR Engine Error:", e);
+                    setStatus("OCR Engine Initialized in Single Thread Mode");
+                }
+            };
+
+            useEffect(() => {
+                initEngine();
+            }, []);
+
+            // Auto-save audit results state
+            useEffect(() => {
+                if (results.length > 0) {
+                    const timer = setTimeout(() => {
+                        try {
+                            localStorage.setItem('auditcore_results_v23', JSON.stringify(results));
+                            setLastSaved(new Date());
+                        } catch (e) { console.error("LocalStorage save error", e); }
+                    }, 2000);
+                    return () => clearTimeout(timer);
+                }
+            }, [results]);
+
+            // Reset System Engine State
             const resetSystem = () => {
                 setConfirmDialog({
-                    title: "RESET SYSTEM",
-                    message: "Are you sure you want to clear all imported datasets, cached OCR entries, and current audit state?",
-                    onConfirm: async () => {
-                        if (window.idbKeyval) await idbKeyval.del(DB_KEY);
-                        window.location.reload();
+                    title: "Reset AuditCore Engine",
+                    message: "Are you sure you want to clear all loaded datasets, receipts, and audit results?",
+                    onConfirm: () => {
+                        setProcessedData({ studentMap: {}, bankList: [], familyLinks: {}, receipts: [] });
+                        setAssetStatus({ master: false, bank: false, family: false, slips: false });
+                        setResults([]);
+                        setIntervention(null);
+                        setSecondaryReportData([]);
+                        setSecondarySlips([]);
+                        localStorage.removeItem('auditcore_results_v23');
+                        setStatus("System Reset Completed");
+                        showToast("System reset completed. All records cleared.", "info");
                     }
                 });
             };
 
-            const analyzeStudent = (student, cluster, bankIndex, currentConfig, fullBankList, allStudentsMap, ocrData = null) => {
-                const penaltyDate = getStartOfDay(parseDate(currentConfig.lateLogicStart));
-                const { amount: slipAmount, trace: slipTrace, potentialTraces = [], detectedDate: slipDate, receiverMatched = false, accountMatched = false } = ocrData || {};
-
-                const indivGradeNum = parseGradeNumber(student.grade);
-                const indivBaseFee = Number(currentConfig.gradeFees[indivGradeNum] !== undefined ? currentConfig.gradeFees[indivGradeNum] : (indivGradeNum === 1 ? 3500 : 3000));
-
-                let familyBaseFee = 0;
-                let familyMembersInfo = [];
-                const uniqueCluster = [...new Set(cluster || [])];
-                const seenTokens = new Set();
-
-                uniqueCluster.forEach(memberId => {
-                    const mem = allStudentsMap[memberId] || (memberId === student.token ? student : null);
-                    if (mem && !seenTokens.has(mem.token)) {
-                        seenTokens.add(mem.token);
-                        const gNum = parseGradeNumber(mem.grade);
-                        const feeForGrade = Number(currentConfig.gradeFees[gNum] !== undefined ? currentConfig.gradeFees[gNum] : (gNum === 1 ? 3500 : 3000));
-                        familyBaseFee += feeForGrade;
-                        familyMembersInfo.push({ id: mem.token, token: mem.token, name: mem.name, grade: mem.grade, baseFee: feeForGrade });
-                    }
-                });
-
-                let candidateTxns = [];
-
-                // 1. Direct Token Match (100% confidence)
-                cluster.forEach(cid => {
-                    if (bankIndex.has(cid)) {
-                        bankIndex.get(cid).forEach(txn => {
-                            candidateTxns.push({ ...txn, method: 'Direct Token Match', confidence: 100 });
-                        });
-                    }
-                });
-
-                // 2. Normalized Full Name Match
-                if (candidateTxns.length === 0 && student.name && student.name !== 'Unknown Student' && student.name.length > 3) {
-                    const cleanStudentName = normalize(student.name);
-                    const nameParts = cleanStudentName.split(' ').filter(p => p.length > 1);
-                    fullBankList.forEach(txn => {
-                        if (txn.desc.includes(cleanStudentName)) {
-                            candidateTxns.push({ ...txn, method: 'Exact Full Name Match', confidence: 100 });
-                        } else if (nameParts.length >= 2 && nameParts.every(part => txn.desc.includes(part))) {
-                            candidateTxns.push({ ...txn, method: 'Multi-part Name Match', confidence: 95 });
-                        }
-                    });
-                }
-
-                // 3. Explicit OCR Trace Match
-                if (candidateTxns.length === 0 && (slipTrace || potentialTraces.length > 0)) {
-                    const searchTraces = [slipTrace, ...potentialTraces].filter(Boolean);
-                    searchTraces.forEach(trCode => {
-                        fullBankList.forEach(txn => {
-                            const traceRegex = new RegExp(`\\b${trCode}\\b`, 'i');
-                            if (traceRegex.test(txn.desc) || txn.desc.includes(trCode)) {
-                                candidateTxns.push({ ...txn, method: `OCR TRACE #${trCode} Match`, confidence: 100 });
-                            }
-                        });
-                    });
-                }
-
-                candidateTxns = [...new Map(candidateTxns.map(item => [item.id, item])).values()].sort((a,b) => b.confidence - a.confidence);
-
-                const totalPaid = candidateTxns.reduce((sum, t) => sum + t.amount, 0);
-                const dates = candidateTxns.map(t => t.date).filter(Boolean);
-                const rawEffDate = dates.length > 0 ? new Date(Math.min(...dates)) : (slipDate || student.uploadTimestamp);
-                const effDateStart = getStartOfDay(rawEffDate);
-
-                const isLateSubmission = effDateStart && penaltyDate && effDateStart >= penaltyDate;
-                const requiredLateFee = isLateSubmission ? Number(currentConfig.lateFee || 500) : 0;
-
-                const indivTotalExpected = indivBaseFee + requiredLateFee;
-                const familyTotalExpected = familyBaseFee + (isLateSubmission ? requiredLateFee * Math.max(1, cluster.length) : 0);
-
-                let expectedBaseFee = indivBaseFee;
-                let totalExpected = indivTotalExpected;
-
-                if (cluster.length > 1 && (Math.abs(totalPaid - familyTotalExpected) < 1.0 || Math.abs(totalPaid - familyBaseFee) < 1.0)) {
-                    expectedBaseFee = familyBaseFee;
-                    totalExpected = familyTotalExpected;
-                }
-
-                const has100PercentMatch = candidateTxns.length > 0 && candidateTxns.some(t => t.confidence >= 95);
-                const isAmountExactlyMatched = Math.abs(totalPaid - totalExpected) < 1.0 || Math.abs(totalPaid - expectedBaseFee) < 1.0;
-
-                let statusType = 'unmatched';
-                let autoComment = "";
-
-                let autoAccountNameVerified = receiverMatched || has100PercentMatch;
-                let autoAccountNumVerified = accountMatched || has100PercentMatch;
-
-                if (has100PercentMatch) {
-                    if (isAmountExactlyMatched) {
-                        if (totalPaid >= totalExpected) {
-                            statusType = 'confirmed';
-                            autoComment = isLateSubmission 
-                                ? `VERIFIED: Base Fee (Rs.${expectedBaseFee}) + Late Fee (Rs.${requiredLateFee}) fully satisfied.`
-                                : `VERIFIED: Base Fee (Rs.${expectedBaseFee}) paid in full.`;
-                        } else if (totalPaid >= expectedBaseFee && isLateSubmission) {
-                            statusType = 'late_fee_missing';
-                            autoComment = `Late Fees Not Paid`;
-                        }
-                    } else if (totalPaid > 0) {
-                        statusType = 'odd';
-                        autoComment = `FLAGGED: Partial Amount (Paid Rs.${totalPaid} vs Expected Rs.${totalExpected})`;
-                    }
-                } else if (totalPaid > 0) {
-                    statusType = 'odd';
-                    autoComment = `FLAGGED: Partial Amount (Paid Rs.${totalPaid} vs Expected Rs.${totalExpected})`;
-                } else {
-                    statusType = 'unmatched';
-                    autoComment = "Not Available in Bank Statement";
-                }
-
-                const infoStr = (student.paymentInfo || "").toString().trim().toUpperCase();
-                const notesStr = (student.notes || "").toString().trim();
-                const normalizedMonth = normalizeMonthString(student.month);
-                
-                const isFuturePayment = statusType !== 'late_fee_missing' && (
-                    infoStr.startsWith('OTHER') || 
-                    /future|next month|advance|other month/i.test(notesStr) ||
-                    /future|next month|advance|other month/i.test(infoStr) ||
-                    (normalizedMonth && currentConfig.auditMonth && normalizedMonth.toLowerCase() !== currentConfig.auditMonth.toLowerCase() && normalizedMonth.length > 2)
-                );
-
-                return {
-                    id: student.token,
-                    folder: student.name,
-                    grade: student.grade,
-                    paid: totalPaid,
-                    statusType,
-                    effDate: rawEffDate,
-                    expected: totalExpected,
-                    baseExpected: expectedBaseFee,
-                    lateFeeAmount: requiredLateFee,
-                    isLateSubmission,
-                    matches: candidateTxns,
-                    link: student.link,
-                    forensicNote: autoComment,
-                    ocrAmount: slipAmount,
-                    ocrTrace: slipTrace,
-                    paymentInfo: student.paymentInfo,
-                    notes: student.notes,
-                    month: normalizedMonth,
-                    isFuturePayment,
-                    isFamilyPayment: cluster.length > 1,
-                    familyMembers: familyMembersInfo,
-                    familyClusterKey: getFamilyClusterKey(student.token, processedData.familyLinks),
-                    accountNameVerified: autoAccountNameVerified,
-                    accountNumVerified: autoAccountNumVerified,
-                    timestamp: new Date().toLocaleString(),
-                    isAudited: false
-                };
-            };
-
+            // Main Smart Audit Pipeline Execution
             const runSmartAudit = async () => {
-                if (!assetStatus.master || !assetStatus.bank) {
-                    return showToast("Please load Master Student CSV and Bank Statement CSV first.", "error");
+                const students = Object.values(processedData.studentMap);
+                if (students.length === 0) {
+                    showToast("Please upload Master Student CSV data first!", "error");
+                    return;
                 }
+
                 setIsAuditing(true);
-                setResults([]);
+                setStatus("Running Smart Audit Matching Engine...");
 
-                const { studentMap, bankList, familyLinks } = processedData;
-                setStatus("Indexing Bank Transactions...");
-
-                const bankTokenMap = new Map(); 
-                const knownStudentTokens = new Set(Object.keys(studentMap));
-
-                const extractVBATokens = (str) => {
-                    if (!str) return [];
-                    const matches = str.match(/\b\d{1,6}\b/g) || [];
-                    const exclusions = ['2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'];
-                    return matches.filter(m => {
-                        if (exclusions.includes(m)) return false;
-                        if (m.length <= 2) return knownStudentTokens.has(m);
-                        return true;
+                try {
+                    const compiledResults = students.map(student => {
+                        const cluster = processedData.familyLinks[student.token] || [student.token];
+                        return analyzeStudent(
+                            student, 
+                            cluster, 
+                            processedData.bankList, 
+                            config, 
+                            processedData.bankList, 
+                            processedData.studentMap
+                        );
                     });
-                };
 
-                bankList.forEach(txn => {
-                    const tokens = extractVBATokens(txn.desc);
-                    tokens.forEach(t => {
-                        if (!bankTokenMap.has(t)) bankTokenMap.set(t, []);
-                        bankTokenMap.get(t).push(txn);
-                    });
-                });
-                bankIndexRef.current = bankTokenMap;
-
-                setStatus("Executing Strict Audit Engine with Family Alignment...");
-                const initialResults = [];
-                const allIds = Object.keys(studentMap);
-
-                for (const sid of allIds) {
-                    const student = studentMap[sid];
-                    const cluster = familyLinks[sid] || [sid];
-                    const slip = processedData.receipts.find(r => r.id === sid);
-                    const cacheKey = slip ? `${config.auditMonth}_${slip.name}` : null;
-                    const cachedOcr = cacheKey ? cacheRef.current[cacheKey] : null;
-
-                    const res = analyzeStudent(student, cluster, bankTokenMap, config, bankList, studentMap, cachedOcr);
-                    initialResults.push(res);
+                    setResults(compiledResults);
+                    setStatus(`Audit Complete: ${compiledResults.length} records processed.`);
+                    showToast(`Smart Audit executed! Processed ${compiledResults.length} records.`, "success");
+                } catch (err) {
+                    console.error("Audit error:", err);
+                    showToast(`Audit failed: ${err.message}`, "error");
+                } finally {
+                    setIsAuditing(false);
                 }
-
-                const familySortedResults = initialResults.sort((a, b) => {
-                    if (a.familyClusterKey !== b.familyClusterKey) {
-                        return a.familyClusterKey.localeCompare(b.familyClusterKey, undefined, { numeric: true });
-                    }
-                    return a.id.toString().localeCompare(b.id.toString(), undefined, { numeric: true });
-                });
-
-                setResults(familySortedResults);
-                setStatus("Audit Ledger Matched & Family Aligned. Ready for Manual Verification.");
-                setIsAuditing(false);
             };
 
+            // Run OCR Scan on single card
             const scanSingleCardOcr = async (studentId) => {
                 const slip = processedData.receipts.find(r => r.id === studentId);
-                if (!slip) return showToast(`No slip image loaded for student #${studentId}`, "error");
+                if (!slip) return showToast(`No slip image found for student #${studentId}`, "error");
+                if (isPdfFile(slip)) return showToast("PDF files require manual inspection", "info");
 
                 setScanningCardId(studentId);
                 try {
                     if (!schedulerRef.current) await initEngine();
-                    let imageToScan = slip.url;
-                    if (isPdfFile(slip)) {
-                        const pdf = await pdfjsLib.getDocument(slip.url).promise;
-                        const page = await pdf.getPage(1);
-                        const viewport = page.getViewport({ scale: 2.0 });
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        canvas.height = viewport.height;
-                        canvas.width = viewport.width;
-                        await page.render({ canvasContext: context, viewport: viewport }).promise;
-                        imageToScan = canvas.toDataURL('image/jpeg');
-                    }
-
-                    const processedImg = await preprocessImage(imageToScan);
-                    const ret = await schedulerRef.current.addJob('recognize', processedImg);
-                    const text = ret.data.text;
-                    const slipData = extractSlipData(text, config);
-
                     const cacheKey = `${config.auditMonth}_${slip.name}`;
-                    cacheRef.current[cacheKey] = { text, ...slipData };
+                    let text = '';
+                    let slipData = {};
+
+                    if (cacheRef.current[cacheKey]) {
+                        text = cacheRef.current[cacheKey].text;
+                        slipData = cacheRef.current[cacheKey];
+                    } else {
+                        const ret = await schedulerRef.current.addJob('recognize', slip.url);
+                        text = ret.data.text;
+                        slipData = extractSlipData(text, config);
+                        cacheRef.current[cacheKey] = { text, ...slipData };
+                    }
 
                     const student = processedData.studentMap[studentId];
                     const cluster = processedData.familyLinks[studentId] || [studentId];
-                    const updatedRes = analyzeStudent(student, cluster, bankIndexRef.current, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
+                    const updatedRes = analyzeStudent(student, cluster, processedData.bankList, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
 
                     setResults(prev => prev.map(r => r.id === studentId ? updatedRes : r));
                     if (intervention && intervention.id === studentId) {
@@ -791,7 +553,7 @@
 
                     const student = processedData.studentMap[intervention.id];
                     const cluster = processedData.familyLinks[intervention.id] || [intervention.id];
-                    const updatedRes = analyzeStudent(student, cluster, bankIndexRef.current, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
+                    const updatedRes = analyzeStudent(student, cluster, processedData.bankList, config, processedData.bankList, processedData.studentMap, { text, ...slipData });
 
                     setIntervention(updatedRes);
                     setResults(prev => prev.map(r => r.id === intervention.id ? updatedRes : r));
@@ -902,9 +664,12 @@
                 if (isExact) {
                     newStatus = 'confirmed';
                     newNote = `VERIFIED: Deposit Confirmed via Manual Bank Link (Rs. ${newPaid})`;
-                } else {
+                } else if (newMatches.length > 0) {
                     newStatus = 'odd';
                     newNote = `FLAGGED: Partial Amount (Paid Rs. ${newPaid} vs Expected Rs. ${intervention.expected})`;
+                } else {
+                    newStatus = 'unmatched';
+                    newNote = 'FLAGGED: No corresponding bank deposit found for Token ID';
                 }
 
                 const updatedIntervention = {
@@ -919,6 +684,44 @@
                 setModalNote(newNote);
                 setResults(prev => prev.map(r => r.id === intervention.id ? updatedIntervention : r));
                 showToast(`Bank transaction Rs.${bankTxn.amount} attached to student #${intervention.id}!`, "success");
+            };
+
+            const detachBankTxn = (bankTxnId) => {
+                if (!intervention) return;
+                const existingMatches = intervention.matches || [];
+                const newMatches = existingMatches.filter(m => m.id !== bankTxnId);
+                
+                const newPaid = newMatches.reduce((sum, t) => sum + t.amount, 0);
+                const isExact = Math.abs(newPaid - intervention.expected) < 1.0;
+                
+                let newNote = '';
+                let newStatus = 'unmatched';
+
+                if (newMatches.length > 0) {
+                    if (isExact) {
+                        newStatus = 'confirmed';
+                        newNote = `VERIFIED: Full Payment Confirmed (Rs. ${newPaid})`;
+                    } else {
+                        newStatus = 'odd';
+                        newNote = `FLAGGED: Partial Amount (Paid Rs. ${newPaid} vs Expected Rs. ${intervention.expected})`;
+                    }
+                } else {
+                    newStatus = 'unmatched';
+                    newNote = 'FLAGGED: No corresponding bank deposit found for Token ID';
+                }
+
+                const updatedIntervention = {
+                    ...intervention,
+                    matches: newMatches,
+                    paid: newPaid,
+                    statusType: newStatus,
+                    forensicNote: newNote
+                };
+
+                setIntervention(updatedIntervention);
+                setModalNote(newNote);
+                setResults(prev => prev.map(r => r.id === intervention.id ? updatedIntervention : r));
+                showToast(`Bank credit entry removed from student #${intervention.id}`, "info");
             };
 
             const manualSearchResultTxns = useMemo(() => {
@@ -1185,7 +988,6 @@
             };
 
             const getCleanMonthNameForFile = () => {
-                // Primary extraction: derive target month & year directly from Cutoff Penalty Date
                 const pDate = parseDate(config.lateLogicStart);
                 if (pDate && !isNaN(pDate.getTime())) {
                     const monthNames = [
@@ -1197,13 +999,11 @@
                     return `${monthName}_${fullYear}`;
                 }
 
-                // Secondary fallback: sanitize config.auditMonth
                 if (config.auditMonth) {
                     const cleanMonth = config.auditMonth.trim().replace(/[^A-Za-z0-9_\-]/g, '_').replace(/_+/g, '_');
                     if (cleanMonth) return cleanMonth;
                 }
 
-                // Final fallback: return current month & year
                 const now = new Date();
                 const defaultMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
                 return `${defaultMonths[now.getMonth()]}_${now.getFullYear()}`;
@@ -2069,12 +1869,22 @@
                                             </h5>
                                             
                                             {intervention.matches.map((m, i) => (
-                                                <div key={i} className="text-xs border-b border-slate-800 pb-2 last:border-0 bg-slate-950 p-2 rounded-lg border">
-                                                    <div className="font-bold text-slate-200">{m.desc}</div>
-                                                    <div className="flex justify-between mt-1 text-[10px] text-slate-400 font-mono">
-                                                        <span>{m.date ? new Date(m.date).toLocaleDateString() : '-'}</span>
-                                                        <span className="text-emerald-400 font-bold">Rs. {m.amount} ({m.method})</span>
+                                                <div key={m.id || i} className="text-xs border-b border-slate-800 pb-2 last:border-0 bg-slate-950 p-2 rounded-lg border flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-bold text-slate-200 truncate">{m.desc}</div>
+                                                        <div className="flex justify-between mt-1 text-[10px] text-slate-400 font-mono">
+                                                            <span>{m.date ? new Date(m.date).toLocaleDateString() : '-'}</span>
+                                                            <span className="text-emerald-400 font-bold">Rs. {m.amount} ({m.method})</span>
+                                                        </div>
                                                     </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); detachBankTxn(m.id); }}
+                                                        className="text-slate-500 hover:text-rose-400 p-1 transition-colors shrink-0"
+                                                        title="Delete / Unlink this bank record"
+                                                    >
+                                                        <i className="fas fa-trash-alt text-xs"></i>
+                                                    </button>
                                                 </div>
                                             ))}
                                             
@@ -2285,17 +2095,22 @@
                                             </div>
                                         )}
 
-                                        <input
-                                            value={modalNote}
-                                            onChange={e => setModalNote(e.target.value)}
-                                            placeholder="Write custom audit note or remark..."
-                                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500"
-                                        />
-                                        <div className="flex gap-3">
-                                            <button onClick={closeReview} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-xl font-bold text-xs uppercase">Cancel</button>
-                                            <button onClick={saveReviewAndNext} className="flex-2 bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-xl font-bold text-xs uppercase px-8 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2">
-                                                <span>Confirm & Next</span>
-                                                <i className="fas fa-arrow-right text-xs"></i>
+                                        <div>
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Custom Auditor Notes</label>
+                                            <textarea 
+                                                value={modalNote} 
+                                                onChange={e => setModalNote(e.target.value)}
+                                                placeholder="Write specific forensic observation notes..."
+                                                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-600 outline-none focus:border-indigo-500 h-20 font-mono"
+                                            />
+                                        </div>
+
+                                        <div className="flex gap-3 pt-2">
+                                            <button onClick={closeReview} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs uppercase transition-all">
+                                                Cancel
+                                            </button>
+                                            <button onClick={saveReviewAndNext} className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all">
+                                                <i className="fas fa-check-circle"></i> Save & Next Record
                                             </button>
                                         </div>
                                     </div>
@@ -2304,32 +2119,32 @@
                         </div>
                     )}
 
-                    {/* Fullscreen Slip Evidence Viewer */}
+                    {/* Fullscreen Image Viewer Modal */}
                     {fullscreenSlip && (
-                        <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col animate-fade-in">
-                            <div className="h-16 flex justify-between items-center px-6 border-b border-white/10 bg-slate-950">
-                                <div className="text-white font-bold text-sm font-mono">{fullscreenSlip.name}</div>
-                                <div className="flex items-center gap-3">
-                                    <button onClick={() => setRotation(r => (r + 90) % 360)} className="text-slate-400 hover:text-white p-2" title="Rotate"><i className="fas fa-redo"></i></button>
-                                    <button onClick={() => setFullscreenSlip(null)} className="text-slate-400 hover:text-white p-2"><i className="fas fa-times text-xl"></i></button>
-                                </div>
+                        <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center p-4 select-none">
+                            <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
+                                <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 4))} className="w-10 h-10 rounded-xl bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center border border-slate-700" title="Zoom In">
+                                    <i className="fas fa-search-plus"></i>
+                                </button>
+                                <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.5, 0.5))} className="w-10 h-10 rounded-xl bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center border border-slate-700" title="Zoom Out">
+                                    <i className="fas fa-search-minus"></i>
+                                </button>
+                                <button onClick={() => setRotation(prev => (prev + 90) % 360)} className="w-10 h-10 rounded-xl bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center border border-slate-700" title="Rotate 90 Degrees">
+                                    <i className="fas fa-redo"></i>
+                                </button>
+                                <button onClick={() => setFullscreenSlip(null)} className="w-10 h-10 rounded-xl bg-rose-600 text-white hover:bg-rose-500 flex items-center justify-center border border-rose-500 shadow-lg shadow-rose-600/30" title="Close">
+                                    <i className="fas fa-times"></i>
+                                </button>
                             </div>
-                            <div className="flex-1 overflow-auto p-8 flex items-center justify-center bg-neutral-950">
-                                <img
-                                    src={fullscreenSlip.url}
-                                    className="max-w-none shadow-2xl transition-transform duration-200 ease-out"
-                                    style={{ transform: `scale(${zoomLevel}) rotate(${rotation}deg)` }}
+                            <div className="w-full h-full flex items-center justify-center overflow-auto p-8">
+                                <img 
+                                    src={fullscreenSlip.url} 
+                                    style={{ transform: `scale(${zoomLevel}) rotate(${rotation}deg)`, transition: 'transform 0.2s ease-in-out' }} 
+                                    className="max-w-full max-h-full object-contain shadow-2xl rounded-lg"
                                 />
-                            </div>
-                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur rounded-full px-6 py-2.5 flex items-center gap-6 shadow-2xl border border-slate-800">
-                                <button onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.25))} className="text-white hover:text-indigo-400 text-xl font-bold">-</button>
-                                <span className="text-indigo-400 font-mono text-xs font-bold min-w-[3rem] text-center">{Math.round(zoomLevel * 100)}%</span>
-                                <button onClick={() => setZoomLevel(z => Math.min(4, z + 0.25))} className="text-white hover:text-indigo-400 text-xl font-bold">+</button>
-                                <button onClick={() => { setZoomLevel(1); setRotation(0); }} className="text-xs font-mono text-slate-400 hover:text-white uppercase font-bold">Reset</button>
                             </div>
                         </div>
                     )}
-
                 </div>
             );
         };
