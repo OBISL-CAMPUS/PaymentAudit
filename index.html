@@ -132,7 +132,7 @@
             for (const [short, full] of Object.entries(monthMap)) {
                 if (str.toLowerCase().includes(short)) {
                     const yearMatch = str.match(/\b(20\d{2}|\d{2})\b/);
-                    let year = yearMatch ? (yearMatch[1].length === 2 ? `20${yearMatch[1]}` : yearMatch[1]) : '2026';
+                    let year = yearMatch ? (yearMatch[1].length === 2 ? `20${yearMatch[1]}` : yearMatch[1]) : new Date().getFullYear().toString();
                     return `${full} ${year}`;
                 }
             }
@@ -272,7 +272,7 @@
         const extractIdFromSlip = (file) => {
             const fileNameMatch = file.name.match(/\b\d{2,6}\b/);
             const folder = (file.webkitRelativePath || "").split('/').reverse()[1] || "";
-            const isGenericFolder = /grade|class|slip|receipt|august|audit|photo|image/i.test(folder);
+            const isGenericFolder = /grade|class|slip|receipt|august|september|october|november|december|january|february|march|april|may|june|july|audit|photo|image/i.test(folder);
             if (fileNameMatch) return fileNameMatch[0];
             if (folder && !isGenericFolder) {
                 const folderMatch = folder.match(/\b\d{2,6}\b/);
@@ -703,7 +703,8 @@
                     const student = studentMap[sid];
                     const cluster = familyLinks[sid] || [sid];
                     const slip = processedData.receipts.find(r => r.id === sid);
-                    const cachedOcr = slip ? cacheRef.current[slip.name] : null;
+                    const cacheKey = slip ? `${config.auditMonth}_${slip.name}` : null;
+                    const cachedOcr = cacheKey ? cacheRef.current[cacheKey] : null;
 
                     const res = analyzeStudent(student, cluster, bankTokenMap, config, bankList, studentMap, cachedOcr);
                     initialResults.push(res);
@@ -746,7 +747,8 @@
                     const text = ret.data.text;
                     const slipData = extractSlipData(text, config);
 
-                    cacheRef.current[slip.name] = { text, ...slipData };
+                    const cacheKey = `${config.auditMonth}_${slip.name}`;
+                    cacheRef.current[cacheKey] = { text, ...slipData };
 
                     const student = processedData.studentMap[studentId];
                     const cluster = processedData.familyLinks[studentId] || [studentId];
@@ -784,7 +786,8 @@
                     const text = ret.data.text;
                     const slipData = extractSlipData(text, config);
 
-                    cacheRef.current[slip.name] = { text, ...slipData };
+                    const cacheKey = `${config.auditMonth}_${slip.name}`;
+                    cacheRef.current[cacheKey] = { text, ...slipData };
 
                     const student = processedData.studentMap[intervention.id];
                     const cluster = processedData.familyLinks[intervention.id] || [intervention.id];
@@ -1181,6 +1184,31 @@
                 } catch (e) { showToast(`Export failed: ${e.message}`, "error"); }
             };
 
+            const getCleanMonthNameForFile = () => {
+                // Primary extraction: derive target month & year directly from Cutoff Penalty Date
+                const pDate = parseDate(config.lateLogicStart);
+                if (pDate && !isNaN(pDate.getTime())) {
+                    const monthNames = [
+                        'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                    ];
+                    const monthName = monthNames[pDate.getMonth()];
+                    const fullYear = pDate.getFullYear();
+                    return `${monthName}_${fullYear}`;
+                }
+
+                // Secondary fallback: sanitize config.auditMonth
+                if (config.auditMonth) {
+                    const cleanMonth = config.auditMonth.trim().replace(/[^A-Za-z0-9_\-]/g, '_').replace(/_+/g, '_');
+                    if (cleanMonth) return cleanMonth;
+                }
+
+                // Final fallback: return current month & year
+                const now = new Date();
+                const defaultMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                return `${defaultMonths[now.getMonth()]}_${now.getFullYear()}`;
+            };
+
             const exportReport = () => {
                 if (results.length === 0) return showToast("No audit results to export. Please run audit first.", "error");
 
@@ -1231,8 +1259,9 @@
                     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customNotesRecords.map(mapRecordToExportRow)), "Custom Remarks");
                 }
 
-                XLSX.writeFile(wb, `AuditCore_Report_${config.auditMonth.replace(/\s+/g, '_')}_v23.xlsx`);
-                showToast("Multi-tab Excel report exported successfully!", "success");
+                const outputFileName = `AuditCore_Report_${getCleanMonthNameForFile()}.xlsx`;
+                XLSX.writeFile(wb, outputFileName);
+                showToast(`Multi-tab Excel report exported successfully as ${outputFileName}!`, "success");
             };
 
             const exportLateFeeReport = () => {
@@ -1252,8 +1281,9 @@
                 }));
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Late Fee Defaulters");
-                XLSX.writeFile(wb, `Late_Fee_Defaulters_${config.auditMonth.replace(/\s+/g, '_')}.xlsx`);
-                showToast("Late Fee Defaulters report generated!", "success");
+                const outputFileName = `Late_Fee_Defaulters_${getCleanMonthNameForFile()}.xlsx`;
+                XLSX.writeFile(wb, outputFileName);
+                showToast(`Late Fee Defaulters report generated as ${outputFileName}!`, "success");
             };
 
             const stats = useMemo(() => {
